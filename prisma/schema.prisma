@@ -1,0 +1,218 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CryptoSignal {
+  id            String      @id @default(cuid())
+  signal_id     String      @unique
+  symbol        String
+  action        String
+  side          String
+  pattern_type  String
+  timestamp     DateTime
+  entry_price   Decimal
+  stop_loss     Decimal
+  take_profit   Decimal
+  confidence    Decimal
+  timeframe     String
+  expires_in    Int
+  expires_at    DateTime
+  risk_ratio    Decimal
+  raw_data      Json?
+  result        Decimal?    @db.Decimal(6, 2) // Backtest result percentage (-100 to 100)
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @updatedAt
+
+  // New relationship to orders
+  orders        Order[]
+
+  @@map("crypto_signals")
+}
+
+// Enums for Trading Configuration
+enum TradeSizeType {
+  PERCENTAGE
+  USD
+}
+
+enum TradeSizeBenchmark {
+  BALANCE
+  SL
+  TP
+}
+
+// Authentication Models
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String   // Hashed password
+  name       String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  trading_accounts TradingAccount[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// Order Management Models
+model TradingAccount {
+  id          String   @id @default(cuid())
+  user_id     String
+  name        String
+  exchange    String   // "binance"
+  api_key     String   @db.Text  // Encrypted
+  secret_key  String   @db.Text  // Encrypted
+  encrypted_at DateTime? // When keys were last encrypted
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  user        User       @relation(fields: [user_id], references: [id])
+  strategies  Strategy[]
+  orders      Order[]
+  positions   Position[]
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@index([name])
+  @@map("trading_accounts")
+}
+
+model Strategy {
+  id          String   @id @default(cuid())
+  name        String
+  account_id  String
+  is_active   Boolean  @default(true)
+
+  // Trading Configuration
+  trade_size_type      TradeSizeType      @default(PERCENTAGE)
+  trade_size_amount    Decimal            @default(5.00) @db.Decimal(10, 2)
+  trade_size_benchmark TradeSizeBenchmark @default(SL)
+  min_risk_ratio       Decimal?           @db.Decimal(6, 2)
+  max_risk_ratio       Decimal?           @db.Decimal(6, 2)
+  allowed_signals      String[]           // ["double_bottom", "double_top"] or null for all
+  allowed_symbols      String[]           // ["BTCUSDT", "ETHUSDT"] or null for all
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  account     TradingAccount @relation(fields: [account_id], references: [id])
+  orders      Order[]
+  positions   Position[]
+
+  @@unique([account_id, name])
+  @@index([account_id])
+  @@index([is_active])
+  @@map("strategies")
+}
+
+model Order {
+  id                String        @id @default(cuid())
+  order_id          String?       @unique // Exchange order ID
+  client_order_id   String        @unique
+  signal_id         String?       // Link to original signal
+  account_id        String
+  strategy_id       String?       // Link to strategy that created this order
+  symbol            String
+  side              String        // "buy" or "sell"
+  type              String        // "market", "limit", "stop", etc.
+  order_type        String        @default("entry") // "entry", "exit", "close" - tracks order purpose
+  amount            Decimal
+  price             Decimal?
+  status            String        // "pending", "filled", "cancelled", "rejected"
+  filled_amount     Decimal       @default(0)
+  average_price     Decimal?
+  commission        Decimal?
+  commission_asset  String?
+  retry_count       Int           @default(0)
+  max_retries       Int           @default(3)
+  error_message     String?
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+
+  account           TradingAccount @relation(fields: [account_id], references: [id])
+  strategy          Strategy?      @relation(fields: [strategy_id], references: [id])
+  signal            CryptoSignal?  @relation(fields: [signal_id], references: [signal_id])
+  order_updates     OrderUpdate[]
+  trade_executions  TradeExecution[]
+
+  @@map("orders")
+}
+
+model OrderUpdate {
+  id          String   @id @default(cuid())
+  order_id    String
+  status      String
+  filled_qty  Decimal?
+  avg_price   Decimal?
+  commission  Decimal?
+  timestamp   DateTime @default(now())
+  
+  order       Order    @relation(fields: [order_id], references: [id])
+  
+  @@map("order_updates")
+}
+
+model Position {
+  id              String   @id @default(cuid())
+  account_id      String
+  strategy_id     String?  // Link to strategy that created this position
+  symbol          String
+  side            String   // "long" or "short"
+  size            Decimal
+  entry_price     Decimal
+  mark_price      Decimal?
+  unrealized_pnl  Decimal?
+  realized_pnl    Decimal  @default(0)
+  margin          Decimal?
+  leverage        Decimal?
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  account         TradingAccount @relation(fields: [account_id], references: [id])
+  strategy        Strategy?      @relation(fields: [strategy_id], references: [id])
+
+  @@unique([account_id, strategy_id, symbol, side])
+  @@map("positions")
+}
+
+model TradeExecution {
+  id              String   @id @default(cuid())
+  order_id        String
+  trade_id        String   @unique // Exchange trade ID
+  symbol          String
+  side            String
+  amount          Decimal
+  price           Decimal
+  commission      Decimal
+  commission_asset String
+  timestamp       DateTime
+  
+  order           Order    @relation(fields: [order_id], references: [id])
+  
+  @@map("trade_executions")
+}
+
+model OrderLog {
+  id          String   @id @default(cuid())
+  order_id    String?
+  account_id  String?
+  level       String   // "info", "warn", "error"
+  action      String
+  message     String
+  details     Json?
+  timestamp   DateTime @default(now())
+  
+  @@map("order_logs")
+}

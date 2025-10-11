@@ -1,0 +1,69 @@
+# Build stage
+FROM node:20-alpine AS builder
+
+# Install build dependencies (Python, make, g++ for native modules like bcrypt)
+RUN apk add --no-cache postgresql-client dos2unix python3 make g++
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+COPY prisma ./prisma/
+
+# Install ALL dependencies (including devDependencies for build)
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Generate Prisma Client
+RUN pnpm prisma generate
+
+# Build TypeScript to JavaScript
+RUN pnpm build
+
+# Remove dev dependencies to reduce size
+RUN pnpm install --prod --frozen-lockfile
+
+# Production stage
+FROM node:20-alpine
+
+# Install ONLY runtime dependencies
+RUN apk add --no-cache postgresql-client tini dos2unix
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy from builder (not source code)
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package*.json ./
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+
+# Copy initialization script
+COPY --chown=node:node scripts/wait-for-db.sh ./scripts/
+RUN dos2unix ./scripts/wait-for-db.sh && chmod +x ./scripts/wait-for-db.sh
+
+# Create logs directory with proper permissions
+RUN mkdir -p /app/logs && chown -R node:node /app/logs
+
+# Run as non-root user
+USER node
+
+# Expose port
+EXPOSE 3733
+
+# Health check - verify the NestJS app process is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD pgrep -f 'node dist/main' || exit 1
+
+# Use tini for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start the application via initialization script
+CMD ["./scripts/wait-for-db.sh", "node", "dist/main.js"]

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  crypto-watcher-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: crypto_watcher_api
+    ports:
+      - "3733:3733"
+    environment:
+      - NODE_ENV=production
+      - PORT=3733
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN}
+    env_file:
+      - .env
+    networks:
+      - shared
+    restart: unless-stopped
+    depends_on:
+      - crypto_watcher_trade_db
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3733/auth/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  shared:
+    external: true
+    name: crypto_watcher_network
