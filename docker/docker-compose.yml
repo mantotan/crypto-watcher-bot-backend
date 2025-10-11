@@ -17,7 +17,7 @@ services:
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN}
     env_file:
-      - .env
+      - ../.env
     networks:
       - shared
     restart: unless-stopped
