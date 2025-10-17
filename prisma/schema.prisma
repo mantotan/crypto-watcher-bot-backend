@@ -12,29 +12,34 @@ datasource db {
 }
 
 model CryptoSignal {
-  id            String      @id @default(cuid())
-  signal_id     String      @unique
-  symbol        String
-  action        String
-  side          String
-  pattern_type  String
-  timestamp     DateTime
-  entry_price   Decimal
-  stop_loss     Decimal
-  take_profit   Decimal
-  confidence    Decimal
-  timeframe     String
-  expires_in    Int
-  expires_at    DateTime
-  risk_ratio    Decimal
-  raw_data      Json?
-  result        Decimal?    @db.Decimal(6, 2) // Backtest result percentage (-100 to 100)
-  created_at    DateTime    @default(now())
-  updated_at    DateTime    @updatedAt
+  id           String   @id @default(cuid())
+  signal_id    String   @unique
+  symbol       String
+  action       String
+  side         String
+  pattern_type String
+  timestamp    DateTime @db.Timestamptz
+  entry_price  Decimal  @db.Decimal(20, 8) // High precision for crypto prices
+  stop_loss    Decimal  @db.Decimal(20, 8)
+  take_profit  Decimal  @db.Decimal(20, 8)
+  confidence   Decimal  @db.Decimal(6, 2) // Percentage (0.00 to 100.00)
+  timeframe    String
+  expires_in   Int
+  expires_at   DateTime @db.Timestamptz
+  risk_ratio   Decimal  @db.Decimal(6, 2) // Risk/reward ratio
+  raw_data     Json?
+  result       Decimal? @db.Decimal(6, 2) // Backtest result percentage (-100 to 100)
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @updatedAt @db.Timestamptz
 
-  // New relationship to orders
-  orders        Order[]
+  // Relationships
+  orders          Order[]
+  paper_positions PaperPosition[]
+  paper_trades    PaperTrade[]
 
+  @@index([symbol])
+  @@index([pattern_type])
+  @@index([timestamp])
   @@map("crypto_signals")
 }
 
@@ -50,37 +55,209 @@ enum TradeSizeBenchmark {
   TP
 }
 
+enum BacktestStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum RiskMode {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum TradingMode {
+  REAL
+  PAPER
+}
+
+// Order Management Enums
+enum OrderStatus {
+  PENDING
+  OPEN
+  FILLED
+  PARTIALLY_FILLED
+  CANCELLED
+  REJECTED
+  EXPIRED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
 // Authentication Models
 model User {
-  id         String   @id @default(cuid())
-  email      String   @unique
-  password   String   // Hashed password
-  name       String?
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String? // Hashed password (nullable for OAuth users)
+  name              String?
+  image             String? // Profile picture URL from OAuth providers
+  email_verified    Boolean   @default(false) // Email verification status
+  email_verified_at DateTime? @db.Timestamptz // When email was verified
 
-  trading_accounts TradingAccount[]
+  // 🔒 SECURITY: Account lockout fields
+  login_attempts Int       @default(0) // Failed login attempts counter
+  locked_until   DateTime? @db.Timestamptz // Account locked until this time
+
+  // 🔒 SECURITY: Password change tracking (for JWT invalidation)
+  password_changed_at DateTime? @db.Timestamptz // Last password change timestamp
+
+  // 🔒 SECURITY: Two-Factor Authentication (TOTP)
+  two_factor_enabled    Boolean   @default(false) // Whether 2FA is enabled
+  two_factor_secret     String?   @db.Text // Encrypted TOTP secret (Base32) - use same encryption as trading accounts
+  two_factor_enabled_at DateTime? @db.Timestamptz // When 2FA was enabled (for JWT invalidation)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  accounts                  Account[]
+  trading_accounts          TradingAccount[]
+  backtest_strategies       BacktestStrategy[]
+  backtest_tasks            BacktestTask[]
+  email_verification_tokens EmailVerificationToken[]
+  password_reset_tokens     PasswordResetToken[]
+  two_factor_backup_codes   TwoFactorBackupCode[]
+  two_factor_attempts       TwoFactorAttempt[]
 
   @@index([email])
+  @@index([locked_until]) // 🔒 For cleanup/unlock queries
   @@map("users")
+}
+
+// OAuth Account Management
+// Supports multiple auth providers (Google, GitHub, etc.) per user
+model Account {
+  id                  String  @id @default(cuid())
+  user_id             String
+  type                String // "oauth" or "credentials"
+  provider            String // "google", "github", "credentials"
+  provider_account_id String // User's ID from the OAuth provider
+  refresh_token       String? @db.Text
+  access_token        String? @db.Text
+  expires_at          Int? // Unix timestamp
+  token_type          String? // "Bearer"
+  scope               String?
+  id_token            String? @db.Text
+  session_state       String?
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_account_id])
+  @@index([user_id])
+  @@map("accounts")
+}
+
+// Email Verification Tokens
+// Recommended: 6-digit numeric codes with 15-30 minute expiry
+model EmailVerificationToken {
+  id         String    @id @default(cuid())
+  user_id    String
+  token      String    @unique // 6-digit code or UUID
+  expires_at DateTime  @db.Timestamptz // Typically 15-30 minutes from creation
+  created_at DateTime  @default(now()) @db.Timestamptz
+  used_at    DateTime? @db.Timestamptz // Timestamp when token was used for verification
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token])
+  @@index([expires_at]) // For cleanup queries to delete expired tokens
+  @@map("email_verification_tokens")
+}
+
+// Password Reset Tokens
+// Recommended: 32+ character random tokens with 15-60 minute expiry
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  user_id    String
+  token      String    @unique // Secure random token (32+ chars) or 6-digit code
+  expires_at DateTime  @db.Timestamptz // Typically 15-60 minutes from creation
+  created_at DateTime  @default(now()) @db.Timestamptz
+  used_at    DateTime? @db.Timestamptz // Timestamp when token was used to reset password
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token])
+  @@index([expires_at]) // For cleanup queries to delete expired tokens
+  @@map("password_reset_tokens")
+}
+
+// Two-Factor Backup Codes
+// Recommended: 8-10 codes per user, 8-16 characters each, one-time use only
+// 🔒 SECURITY: Store hashed (bcrypt/argon2) like passwords, NOT encrypted or plaintext
+model TwoFactorBackupCode {
+  id         String    @id @default(cuid())
+  user_id    String
+  code_hash  String // Hashed backup code (use bcrypt or argon2, NOT encryption)
+  used_at    DateTime? @db.Timestamptz // Timestamp when code was used (null = unused)
+  created_at DateTime  @default(now()) @db.Timestamptz
+  expires_at DateTime? @db.Timestamptz // Optional: codes can expire after X months
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([used_at]) // For cleanup queries to find unused codes
+  @@map("two_factor_backup_codes")
+}
+
+// Two-Factor Authentication Attempts
+// Track 2FA verification attempts for rate limiting and security monitoring
+model TwoFactorAttempt {
+  id         String   @id @default(cuid())
+  user_id    String
+  ip_address String? // Client IP address for suspicious activity detection
+  user_agent String?  @db.Text // Browser/client user agent
+  success    Boolean  @default(false) // Whether the 2FA attempt succeeded
+  timestamp  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, timestamp]) // For rate limiting queries (e.g., "failed attempts in last 15 min")
+  @@index([ip_address]) // For detecting attacks from specific IPs
+  @@index([timestamp]) // For cleanup queries to delete old attempts
+  @@map("two_factor_attempts")
 }
 
 // Order Management Models
 model TradingAccount {
-  id          String   @id @default(cuid())
-  user_id     String
-  name        String
-  exchange    String   // "binance"
-  api_key     String   @db.Text  // Encrypted
-  secret_key  String   @db.Text  // Encrypted
-  encrypted_at DateTime? // When keys were last encrypted
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id           String    @id @default(cuid())
+  user_id      String
+  name         String
+  exchange     String // "binance"
+  api_key      String    @db.Text // Encrypted
+  secret_key   String    @db.Text // Encrypted
+  encrypted_at DateTime? @db.Timestamptz // When keys were last encrypted
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  updated_at   DateTime  @updatedAt @db.Timestamptz
 
-  user        User       @relation(fields: [user_id], references: [id])
-  strategies  Strategy[]
-  orders      Order[]
-  positions   Position[]
+  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  strategies      Strategy[]
+  orders          Order[]
+  positions       Position[]
+  order_logs      OrderLog[]
+  portfolios      Portfolio[]
+  paper_positions PaperPosition[]
+  paper_trades    PaperTrade[]
 
   @@unique([user_id, name])
   @@index([user_id])
@@ -89,10 +266,10 @@ model TradingAccount {
 }
 
 model Strategy {
-  id          String   @id @default(cuid())
-  name        String
-  account_id  String
-  is_active   Boolean  @default(true)
+  id         String  @id @default(cuid())
+  name       String
+  account_id String
+  is_active  Boolean @default(true)
 
   // Trading Configuration
   trade_size_type      TradeSizeType      @default(PERCENTAGE)
@@ -100,119 +277,538 @@ model Strategy {
   trade_size_benchmark TradeSizeBenchmark @default(SL)
   min_risk_ratio       Decimal?           @db.Decimal(6, 2)
   max_risk_ratio       Decimal?           @db.Decimal(6, 2)
-  allowed_signals      String[]           // ["double_bottom", "double_top"] or null for all
-  allowed_symbols      String[]           // ["BTCUSDT", "ETHUSDT"] or null for all
+  allowed_signals      String[] // ["double_bottom", "double_top"] or empty for all
+  allowed_symbols      String[] // ["BTCUSDT", "ETHUSDT"] or empty for all
+  allowed_timeframes   String[] // ["1m", "15m", "1h", "4h"] or empty for all
 
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  // Trading Mode Configuration
+  is_live   Boolean     @default(false) // Is strategy currently running
+  mode      TradingMode @default(PAPER) // Which portfolio trades when is_live=true
+  is_public Boolean     @default(false) // Can other users view this strategy
 
-  account     TradingAccount @relation(fields: [account_id], references: [id])
-  orders      Order[]
-  positions   Position[]
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
 
-  @@unique([account_id, name])
+  // Soft delete and archival
+  archived    Boolean   @default(false)
+  archived_at DateTime? @db.Timestamptz
+  deleted_at  DateTime? @db.Timestamptz
+
+  account         TradingAccount  @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  orders          Order[]
+  positions       Position[]
+  portfolios      Portfolio[]
+  paper_positions PaperPosition[]
+  paper_trades    PaperTrade[]
+
+  // PostgreSQL-specific: Allows one active strategy per name (deleted_at=NULL)
+  // and multiple deleted strategies with same name (deleted_at is unique timestamp)
+  @@unique([account_id, name, deleted_at])
   @@index([account_id])
   @@index([is_active])
+  @@index([deleted_at])
+  @@index([archived])
+  @@index([is_live]) // Query running strategies
   @@map("strategies")
 }
 
 model Order {
-  id                String        @id @default(cuid())
-  order_id          String?       @unique // Exchange order ID
-  client_order_id   String        @unique
-  signal_id         String?       // Link to original signal
-  account_id        String
-  strategy_id       String?       // Link to strategy that created this order
-  symbol            String
-  side              String        // "buy" or "sell"
-  type              String        // "market", "limit", "stop", etc.
-  order_type        String        @default("entry") // "entry", "exit", "close" - tracks order purpose
-  amount            Decimal
-  price             Decimal?
-  status            String        // "pending", "filled", "cancelled", "rejected"
-  filled_amount     Decimal       @default(0)
-  average_price     Decimal?
-  commission        Decimal?
-  commission_asset  String?
-  retry_count       Int           @default(0)
-  max_retries       Int           @default(3)
-  error_message     String?
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
+  id               String      @id @default(cuid())
+  order_id         String? // Exchange order ID (not unique alone - can be resubmitted)
+  client_order_id  String      @unique
+  signal_id        String? // Link to original signal (nullable for manual orders)
+  account_id       String
+  strategy_id      String? // Link to strategy that created this order (nullable for pre-strategy orders)
+  symbol           String
+  side             OrderSide // "BUY" or "SELL"
+  type             String // "market", "limit", "stop", etc.
+  order_type       String      @default("entry") // "entry", "exit", "close" - tracks order purpose
+  amount           Decimal     @db.Decimal(20, 8) // Crypto amount precision
+  price            Decimal?    @db.Decimal(20, 8) // Price precision
+  status           OrderStatus // Enum for order status
+  filled_amount    Decimal     @default(0) @db.Decimal(20, 8)
+  average_price    Decimal?    @db.Decimal(20, 8)
+  commission       Decimal?    @db.Decimal(20, 8)
+  commission_asset String?
+  retry_count      Int         @default(0)
+  max_retries      Int         @default(3)
+  error_message    String?     @db.Text
+  created_at       DateTime    @default(now()) @db.Timestamptz
+  updated_at       DateTime    @updatedAt @db.Timestamptz
 
-  account           TradingAccount @relation(fields: [account_id], references: [id])
-  strategy          Strategy?      @relation(fields: [strategy_id], references: [id])
-  signal            CryptoSignal?  @relation(fields: [signal_id], references: [signal_id])
-  order_updates     OrderUpdate[]
-  trade_executions  TradeExecution[]
+  account          TradingAccount   @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy         Strategy?        @relation(fields: [strategy_id], references: [id], onDelete: SetNull)
+  signal           CryptoSignal?    @relation(fields: [signal_id], references: [signal_id], onDelete: SetNull)
+  order_updates    OrderUpdate[]
+  trade_executions TradeExecution[]
+  order_logs       OrderLog[]
 
+  @@unique([account_id, order_id]) // Allow same order_id across accounts
+  @@index([signal_id]) // Lookup orders by signal
+  @@index([status]) // Query pending/filled orders
+  @@index([symbol]) // Query orders by symbol
+  @@index([account_id, status]) // Account's pending orders
+  @@index([strategy_id, status]) // Strategy's active orders
+  @@index([symbol, status]) // Symbol's open orders
+  @@index([created_at]) // Time-based queries
   @@map("orders")
 }
 
 model OrderUpdate {
-  id          String   @id @default(cuid())
-  order_id    String
-  status      String
-  filled_qty  Decimal?
-  avg_price   Decimal?
-  commission  Decimal?
-  timestamp   DateTime @default(now())
-  
-  order       Order    @relation(fields: [order_id], references: [id])
-  
+  id         String      @id @default(cuid())
+  order_id   String
+  status     OrderStatus // Use enum instead of string
+  filled_qty Decimal?    @db.Decimal(20, 8)
+  avg_price  Decimal?    @db.Decimal(20, 8)
+  commission Decimal?    @db.Decimal(20, 8)
+  created_at DateTime    @default(now()) @db.Timestamptz // Standardized naming (was timestamp)
+
+  order Order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([created_at])
   @@map("order_updates")
 }
 
 model Position {
-  id              String   @id @default(cuid())
-  account_id      String
-  strategy_id     String?  // Link to strategy that created this position
-  symbol          String
-  side            String   // "long" or "short"
-  size            Decimal
-  entry_price     Decimal
-  mark_price      Decimal?
-  unrealized_pnl  Decimal?
-  realized_pnl    Decimal  @default(0)
-  margin          Decimal?
-  leverage        Decimal?
-  is_active       Boolean  @default(true)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  id             String       @id @default(cuid())
+  account_id     String
+  strategy_id    String? // Link to strategy that created this position (nullable for manual positions)
+  symbol         String
+  side           PositionSide // "LONG" or "SHORT"
+  size           Decimal      @db.Decimal(20, 8)
+  entry_price    Decimal      @db.Decimal(20, 8)
+  mark_price     Decimal?     @db.Decimal(20, 8)
+  unrealized_pnl Decimal?     @db.Decimal(12, 2)
+  realized_pnl   Decimal      @default(0) @db.Decimal(12, 2)
+  margin         Decimal?     @db.Decimal(12, 2)
+  leverage       Decimal?     @db.Decimal(10, 2)
+  is_active      Boolean      @default(true)
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  updated_at     DateTime     @updatedAt @db.Timestamptz
 
-  account         TradingAccount @relation(fields: [account_id], references: [id])
-  strategy        Strategy?      @relation(fields: [strategy_id], references: [id])
+  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy?      @relation(fields: [strategy_id], references: [id], onDelete: SetNull)
 
-  @@unique([account_id, strategy_id, symbol, side])
+  // CRITICAL: Prevent duplicate active positions for same account/strategy/symbol/side
+  @@unique([account_id, strategy_id, symbol, side, is_active])
+  @@index([account_id]) // Query positions by account
+  @@index([strategy_id]) // Query positions by strategy
+  @@index([symbol]) // Query positions by symbol
+  @@index([is_active]) // Query only active positions
+  @@index([account_id, is_active]) // Account's active positions
+  @@index([strategy_id, is_active]) // Strategy's active positions
+  @@index([symbol, is_active]) // Active positions per symbol
   @@map("positions")
 }
 
 model TradeExecution {
-  id              String   @id @default(cuid())
-  order_id        String
-  trade_id        String   @unique // Exchange trade ID
-  symbol          String
-  side            String
-  amount          Decimal
-  price           Decimal
-  commission      Decimal
+  id               String    @id @default(cuid())
+  order_id         String
+  trade_id         String    @unique // Exchange trade ID
+  symbol           String
+  side             OrderSide // Use enum
+  amount           Decimal   @db.Decimal(20, 8)
+  price            Decimal   @db.Decimal(20, 8)
+  commission       Decimal   @db.Decimal(20, 8)
   commission_asset String
-  timestamp       DateTime
-  
-  order           Order    @relation(fields: [order_id], references: [id])
-  
+  created_at       DateTime  @db.Timestamptz // Standardized naming (was timestamp)
+
+  order Order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([symbol])
+  @@index([created_at])
   @@map("trade_executions")
 }
 
 model OrderLog {
-  id          String   @id @default(cuid())
-  order_id    String?
-  account_id  String?
-  level       String   // "info", "warn", "error"
-  action      String
-  message     String
-  details     Json?
-  timestamp   DateTime @default(now())
-  
+  id         String   @id @default(cuid())
+  order_id   String?
+  account_id String?
+  level      LogLevel // Use enum instead of string
+  action     String
+  message    String   @db.Text
+  details    Json?
+  created_at DateTime @default(now()) @db.Timestamptz // Standardized naming (was timestamp)
+
+  order   Order?          @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  account TradingAccount? @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([account_id])
+  @@index([level])
+  @@index([created_at])
   @@map("order_logs")
+}
+
+model Portfolio {
+  id          String      @id @default(cuid())
+  account_id  String
+  strategy_id String
+  type        TradingMode // REAL or PAPER
+
+  // Balance tracking
+  balance           Decimal @db.Decimal(12, 2)
+  available_balance Decimal @db.Decimal(12, 2)
+  margin_used       Decimal @default(0) @db.Decimal(12, 2)
+
+  // P&L tracking
+  unrealized_pnl  Decimal @default(0) @db.Decimal(12, 2)
+  realized_pnl    Decimal @default(0) @db.Decimal(12, 2)
+  total_fees_paid Decimal @default(0) @db.Decimal(12, 2)
+
+  // Capital tracking
+  initial_balance   Decimal @db.Decimal(12, 2)
+  total_deposits    Decimal @default(0) @db.Decimal(12, 2)
+  total_withdrawals Decimal @default(0) @db.Decimal(12, 2)
+
+  // Performance metrics (calculated periodically)
+  total_trades   Int      @default(0)
+  winning_trades Int      @default(0)
+  losing_trades  Int      @default(0)
+  win_rate       Decimal  @default(0) @db.Decimal(6, 2)
+  profit_factor  Decimal? @db.Decimal(10, 4)
+  max_drawdown   Decimal  @default(0) @db.Decimal(10, 4)
+  sharpe_ratio   Decimal? @db.Decimal(10, 4)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy       @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+
+  @@unique([strategy_id, type])
+  @@index([account_id])
+  @@index([type])
+  @@index([strategy_id])
+  @@map("portfolios")
+}
+
+model PaperPosition {
+  id             String       @id @default(cuid())
+  account_id     String
+  strategy_id    String
+  signal_id      String? // Link to original signal (nullable for manual positions)
+
+  // Position basics
+  symbol         String
+  timeframe      String // From signal
+  side           PositionSide // "LONG" or "SHORT"
+  size           Decimal      @db.Decimal(20, 8)
+
+  // Entry details
+  entry_datetime DateTime     @default(now()) @db.Timestamptz
+  entry_price    Decimal      @db.Decimal(20, 8)
+  entry_value    Decimal      @db.Decimal(12, 2) // Total USD value of position
+  entry_commission Decimal    @default(0) @db.Decimal(12, 2) // Simulated entry fee
+
+  // Exit targets (from signal)
+  stop_loss      Decimal      @db.Decimal(20, 8)
+  take_profit    Decimal      @db.Decimal(20, 8)
+
+  // Current state (updated by price monitor)
+  mark_price     Decimal?     @db.Decimal(20, 8)
+  unrealized_pnl Decimal?     @db.Decimal(12, 2)
+
+  // Risk management
+  margin         Decimal?     @db.Decimal(12, 2)
+  leverage       Decimal?     @db.Decimal(10, 2)
+  reward_risk_ratio Decimal?  @db.Decimal(10, 4)
+  stop_loss_distance_percent Decimal? @db.Decimal(10, 4)
+
+  // Status
+  is_active      Boolean      @default(true)
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  updated_at     DateTime     @updatedAt @db.Timestamptz
+
+  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy       @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+  signal   CryptoSignal?  @relation(fields: [signal_id], references: [signal_id], onDelete: SetNull)
+
+  // CRITICAL: Prevent duplicate active positions for same account/strategy/symbol/side
+  @@unique([account_id, strategy_id, symbol, side, is_active])
+  @@index([account_id]) // Query positions by account
+  @@index([strategy_id]) // Query positions by strategy
+  @@index([signal_id]) // Query positions by signal
+  @@index([symbol]) // Query positions by symbol
+  @@index([is_active]) // Query only active positions
+  @@index([account_id, is_active]) // Account's active positions
+  @@index([strategy_id, is_active]) // Strategy's active positions
+  @@index([symbol, is_active]) // Active positions per symbol
+  @@map("paper_positions")
+}
+
+// Closed paper trades with complete PnL tracking (historical records)
+model PaperTrade {
+  id             String       @id @default(cuid())
+  account_id     String
+  strategy_id    String
+  signal_id      String? // Link to original signal (nullable for manual trades)
+
+  // Trade basics
+  symbol         String
+  timeframe      String // From signal
+  side           PositionSide // "LONG" or "SHORT"
+  size           Decimal      @db.Decimal(20, 8) // Position size in crypto
+
+  // Entry details
+  entry_datetime DateTime     @db.Timestamptz
+  entry_price    Decimal      @db.Decimal(20, 8)
+  entry_value    Decimal      @db.Decimal(12, 2) // Total USD value of position
+  entry_commission Decimal    @default(0) @db.Decimal(12, 2) // Simulated entry fee
+
+  // Exit targets (from signal)
+  stop_loss      Decimal      @db.Decimal(20, 8)
+  take_profit    Decimal      @db.Decimal(20, 8)
+
+  // Exit details
+  exit_datetime  DateTime     @db.Timestamptz
+  exit_price     Decimal      @db.Decimal(20, 8)
+  exit_reason    String // "stop_loss", "take_profit", "manual", "expired"
+  exit_commission Decimal     @default(0) @db.Decimal(12, 2) // Simulated exit fee
+
+  // Risk management metrics
+  leverage       Decimal      @db.Decimal(10, 4)
+  margin_used    Decimal      @db.Decimal(12, 2)
+  reward_risk_ratio Decimal   @db.Decimal(10, 4)
+  stop_loss_distance_percent Decimal @db.Decimal(10, 4)
+  take_profit_distance_percent Decimal @db.Decimal(10, 4)
+
+  // PnL tracking
+  gross_pnl      Decimal      @db.Decimal(12, 2) // PnL before fees
+  total_fees     Decimal      @db.Decimal(12, 2) // Entry + exit fees
+  net_pnl        Decimal      @db.Decimal(12, 2) // PnL after fees
+  roi_percentage Decimal      @db.Decimal(10, 4) // Return on investment %
+
+  // Trade duration
+  bars_held      Int? // Number of candles held (if tracked)
+  duration_seconds Int? // Total time held in seconds
+
+  // Portfolio impact
+  portfolio_balance_before Decimal @db.Decimal(12, 2) // Balance before trade
+  portfolio_balance_after  Decimal @db.Decimal(12, 2) // Balance after trade
+
+  created_at     DateTime     @default(now()) @db.Timestamptz
+
+  // Relationships (SetNull to preserve history even if related entities deleted)
+  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy       @relation(fields: [strategy_id], references: [id], onDelete: SetNull)
+  signal   CryptoSignal?  @relation(fields: [signal_id], references: [signal_id], onDelete: SetNull)
+
+  @@index([account_id, created_at]) // Query trades by account with time ordering
+  @@index([strategy_id, created_at]) // Query trades by strategy with time ordering
+  @@index([signal_id]) // Query trades by signal
+  @@index([symbol]) // Query trades by symbol
+  @@index([exit_reason]) // Analytics on exit reasons
+  @@index([created_at]) // Time-based queries
+  @@map("paper_trades")
+}
+
+// ============================================================================
+// BACKTEST MODELS
+// ============================================================================
+
+// Separate strategy configuration for backtesting (not coupled to TradingAccount)
+model BacktestStrategy {
+  id      String @id @default(cuid())
+  user_id String
+  name    String // "Aggressive Double Top", "Conservative Double Bottom"
+
+  // Pattern filtering
+  strategy_type    String // "pattern_breakout", "indicator_based", etc.
+  allowed_patterns String[] // ["double_top", "double_bottom", "head_shoulders"]
+  allowed_symbols  String[] // ["BTCUSDT", "ETHUSDT"] or empty for all
+  timeframes       String[] // ["4h", "1h"] or empty for all
+
+  // Position configuration
+  position_type String? // "long", "short", or null for both
+
+  // Risk management (matches Python backtest)
+  risk_mode                 RiskMode @default(PERCENTAGE)
+  risk_per_trade_percentage Decimal  @default(5.00) @db.Decimal(10, 2)
+  fixed_risk_amount         Decimal  @default(100.00) @db.Decimal(12, 2)
+  initial_capital           Decimal  @default(10000.00) @db.Decimal(12, 2)
+
+  // Optional: Risk/reward filters
+  min_risk_ratio Decimal? @db.Decimal(6, 2)
+  max_risk_ratio Decimal? @db.Decimal(6, 2)
+
+  // Additional configuration (leverage limits, filters, etc.)
+  config Json? // Flexible for future settings
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  // Soft delete and archival
+  archived    Boolean   @default(false)
+  archived_at DateTime? @db.Timestamptz
+  deleted_at  DateTime? @db.Timestamptz
+
+  user           User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  backtest_tasks BacktestTask[]
+
+  // PostgreSQL-specific: Allows one active strategy per name (deleted_at=NULL)
+  // and multiple deleted strategies with same name (deleted_at is unique timestamp)
+  @@unique([user_id, name, deleted_at])
+  @@index([user_id])
+  @@index([deleted_at])
+  @@index([archived])
+  @@map("backtest_strategies")
+}
+
+// Backtest job/task - submitted to Redis queue
+model BacktestTask {
+  id      String @id @default(cuid())
+  user_id String
+
+  // Optional: Link to strategy template
+  strategy_id String?
+
+  // Backtest identification
+  name        String // User-friendly name
+  description String?
+
+  // Backtest parameters (inline or from strategy)
+  symbols    String[] // ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+  timeframes String[] // ["4h", "1h"]
+  start_date DateTime @db.Timestamptz
+  end_date   DateTime @db.Timestamptz
+
+  // Strategy configuration (snapshot at task creation)
+  strategy_config Json // Full config from BacktestStrategy or custom
+
+  // Task execution tracking
+  status   BacktestStatus @default(PENDING)
+  progress Decimal?       @db.Decimal(5, 2) // 0-100%
+
+  // Redis queue tracking
+  queue_job_id String? // Redis queue job ID for tracking
+
+  // Execution timestamps
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  started_at   DateTime? @db.Timestamptz
+  completed_at DateTime? @db.Timestamptz
+
+  // Error handling
+  error_message String? @db.Text
+  retry_count   Int     @default(0)
+
+  // Soft delete and archival
+  archived    Boolean   @default(false)
+  archived_at DateTime? @db.Timestamptz
+  deleted_at  DateTime? @db.Timestamptz
+
+  user     User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  strategy BacktestStrategy? @relation(fields: [strategy_id], references: [id], onDelete: SetNull)
+  result   BacktestResult?
+
+  @@index([user_id])
+  @@index([status])
+  @@index([strategy_id])
+  @@index([created_at])
+  @@index([deleted_at])
+  @@index([archived])
+  @@map("backtest_tasks")
+}
+
+// Backtest results - portfolio summary (one-to-one with BacktestTask)
+model BacktestResult {
+  id          String @id @default(cuid())
+  backtest_id String @unique // One result per task
+
+  // From backtest_metadata
+  symbols    String[] // All symbols tested in this backtest
+  timeframes String[] // All timeframes tested in this backtest
+  start_date DateTime @db.Timestamptz
+  end_date   DateTime @db.Timestamptz
+
+  total_patterns_found  Int
+  total_trades_executed Int
+
+  // Portfolio metrics (aggregated across all symbol-timeframe combinations)
+  initial_capital         Decimal @db.Decimal(12, 2)
+  final_capital           Decimal @db.Decimal(12, 2)
+  total_return_usd        Decimal @db.Decimal(12, 2)
+  total_return_percentage Decimal @db.Decimal(10, 4)
+  max_drawdown_percentage Decimal @db.Decimal(10, 4)
+
+  // Trade statistics (aggregated)
+  total_trades    Int
+  winning_trades  Int
+  losing_trades   Int
+  win_rate        Decimal  @db.Decimal(6, 2)
+  profit_factor   Decimal? @db.Decimal(10, 4)
+  avg_win         Decimal  @db.Decimal(12, 2)
+  avg_loss        Decimal  @db.Decimal(12, 2)
+  total_fees_paid Decimal  @db.Decimal(12, 2)
+
+  // Risk management snapshot (from portfolio_summary.risk_management)
+  risk_management Json // Store the risk_management object
+
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  backtest BacktestTask    @relation(fields: [backtest_id], references: [id], onDelete: Cascade)
+  trades   BacktestTrade[]
+
+  @@index([backtest_id])
+  @@map("backtest_results")
+}
+
+// Individual trades from backtest
+model BacktestTrade {
+  id        String @id @default(cuid())
+  result_id String
+
+  // Trade identification
+  trade_id   String // From JSON: "SOLUSDT_4h_20250404_20250929_001"
+  pattern_id String? // Pattern identifier from backtest (not a foreign key)
+
+  // Common fields (strongly typed for querying)
+  symbol    String
+  timeframe String
+
+  // Pattern data (JSONB - flexible for any pattern type)
+  pattern_data Json // Entire pattern_data object (first_top, second_top, metrics, etc.)
+
+  // Trade execution (common across all patterns)
+  entry_datetime             DateTime     @db.Timestamptz
+  entry_price                Decimal      @db.Decimal(20, 8)
+  position_type              PositionSide // Use enum instead of string
+  stop_loss                  Decimal      @db.Decimal(20, 8)
+  take_profit                Decimal      @db.Decimal(20, 8)
+  position_size_usd          Decimal      @db.Decimal(12, 2)
+  position_size_share        Decimal      @db.Decimal(20, 8)
+  leverage_used              Decimal      @db.Decimal(10, 4)
+  leverage_capped            Boolean
+  expected_trading_fees      Decimal      @db.Decimal(12, 2)
+  expected_sl_cost           Decimal      @db.Decimal(12, 2)
+  total_expected_risk        Decimal      @db.Decimal(12, 2)
+  stop_loss_distance_percent Decimal      @db.Decimal(10, 4)
+  reward_risk_ratio          Decimal      @db.Decimal(10, 4)
+
+  // Trade outcome
+  exit_datetime       DateTime? @db.Timestamptz
+  exit_price          Decimal?  @db.Decimal(20, 8)
+  exit_reason         String?   @db.Text // "stop_loss_hit", "take_profit_hit", "pattern_expired"
+  bars_held           Int?
+  actual_trading_fees Decimal?  @db.Decimal(12, 2)
+  gross_pnl           Decimal?  @db.Decimal(12, 2)
+  net_pnl             Decimal?  @db.Decimal(12, 2)
+  roi_percentage      Decimal?  @db.Decimal(10, 4)
+  portfolio_value     Decimal?  @db.Decimal(12, 2)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  result BacktestResult @relation(fields: [result_id], references: [id], onDelete: Cascade)
+
+  // CRITICAL: Ensure trade_id is unique per backtest
+  @@unique([result_id, trade_id])
+  // Primary composite index for breakdown queries (also covers result_id-only queries)
+  @@index([result_id, symbol, timeframe])
+  // Optional: Only if querying patterns across all results
+  @@index([pattern_id])
+  @@index([symbol])
+  @@index([timeframe])
+  @@map("backtest_trades")
 }

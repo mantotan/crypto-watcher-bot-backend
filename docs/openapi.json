@@ -1,0 +1,3635 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User successfully registered. Verification email sent. No tokens returned until email is verified."
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "409": {
+            "description": "Email already registered"
+          }
+        },
+        "summary": "Register a new user",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/verify-email": {
+      "post": {
+        "operationId": "AuthController_verifyEmail",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified successfully. Tokens set as HTTP-only cookies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "user": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired verification code"
+          },
+          "429": {
+            "description": "Too many attempts. Rate limit: 10 per minute"
+          }
+        },
+        "summary": "Verify email with 6-digit code (sets HTTP-only cookies)",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/resend-verification": {
+      "post": {
+        "operationId": "AuthController_resendVerification",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerificationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification code sent successfully"
+          },
+          "400": {
+            "description": "User not found or email already verified"
+          },
+          "429": {
+            "description": "Too many requests. Rate limit: 3 per minute"
+          }
+        },
+        "summary": "Resend email verification code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully authenticated. Tokens set as HTTP-only cookies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object"
+                        }
+                      },
+                      "description": "Login successful - tokens set in cookies"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requires2FA": {
+                          "type": "boolean",
+                          "example": true
+                        },
+                        "tempToken": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "description": "2FA required - use temp token to verify"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials"
+          },
+          "403": {
+            "description": "Email not verified"
+          }
+        },
+        "summary": "Login with email and password (sets HTTP-only cookies)",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "description": "Reads refreshToken from HTTP-only cookie and issues new tokens",
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Token refreshed successfully. New tokens set as HTTP-only cookies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Tokens refreshed successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing refresh token"
+          }
+        },
+        "summary": "Refresh access token using refresh token from cookie",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset code sent if email exists (message returned regardless for security)"
+          },
+          "429": {
+            "description": "Too many requests. Rate limit: 3 per minute"
+          }
+        },
+        "summary": "Request password reset code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/verify-reset-code": {
+      "post": {
+        "operationId": "AuthController_verifyResetCode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyResetCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reset code is valid"
+          },
+          "400": {
+            "description": "Invalid or expired reset code"
+          },
+          "429": {
+            "description": "Too many attempts. Rate limit: 5 per minute"
+          }
+        },
+        "summary": "Verify password reset code is valid",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successfully"
+          },
+          "400": {
+            "description": "Invalid or expired reset code"
+          },
+          "429": {
+            "description": "Too many attempts. Rate limit: 5 per minute"
+          }
+        },
+        "summary": "Reset password with verification code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/set-password": {
+      "post": {
+        "description": "Allows OAuth users (Google login) who don't have a password to set one. Once set, users can log in with either method. This endpoint ONLY works if the user has no password yet.",
+        "operationId": "AuthController_setPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password set successfully. User can now log in with email/password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Password set successfully. You can now log in with email and password."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Password is already set. Use password reset flow to change it."
+          },
+          "401": {
+            "description": "Unauthorized - must be logged in"
+          }
+        },
+        "summary": "Set password for OAuth users",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "AuthController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "User profile retrieved"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Get current authenticated user profile",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successfully logged out. Cookies cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Logged out successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Logout user by clearing authentication cookies",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/google": {
+      "get": {
+        "operationId": "AuthController_googleLogin",
+        "parameters": [],
+        "responses": {
+          "302": {
+            "description": "Redirects to Google consent screen"
+          }
+        },
+        "summary": "Initiate Google OAuth login flow",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/google/callback": {
+      "get": {
+        "operationId": "AuthController_googleCallback",
+        "parameters": [],
+        "responses": {
+          "302": {
+            "description": "Redirects to frontend with secure HTTP-only cookies (login) or to settings page (linking)"
+          },
+          "401": {
+            "description": "OAuth authentication failed"
+          },
+          "409": {
+            "description": "Google account already linked to another user (linking only)"
+          }
+        },
+        "summary": "Google OAuth callback (handles both login and account linking)",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/google/link": {
+      "get": {
+        "operationId": "AuthController_googleLink",
+        "parameters": [],
+        "responses": {
+          "302": {
+            "description": "Redirects to Google consent screen with state parameter"
+          },
+          "401": {
+            "description": "Unauthorized - user must be logged in"
+          }
+        },
+        "summary": "Initiate Google account linking for authenticated user",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/account/unlink/{provider}": {
+      "delete": {
+        "operationId": "AuthController_unlinkProvider",
+        "parameters": [
+          {
+            "name": "provider",
+            "required": true,
+            "in": "path",
+            "description": "OAuth provider to unlink",
+            "schema": {
+              "enum": [
+                "google"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider unlinked successfully"
+          },
+          "400": {
+            "description": "Cannot unlink - user has no password set or provider not linked"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Unlink OAuth provider from account",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/accounts/linked": {
+      "get": {
+        "operationId": "AuthController_getLinkedAccounts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of linked OAuth accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "provider": {
+                            "type": "string",
+                            "example": "google"
+                          },
+                          "linked_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "hasPassword": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Get list of linked OAuth providers",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/setup": {
+      "post": {
+        "description": "Generates TOTP secret and QR code. User must scan QR code and verify with code in step 2 (/auth/2fa/enable).",
+        "operationId": "AuthController_setup2FA",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Setup2FADto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "QR code generated. Scan with authenticator app and verify to complete setup.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "qrCode": {
+                      "type": "string",
+                      "description": "QR code data URL for authenticator app"
+                    },
+                    "secret": {
+                      "type": "string",
+                      "description": "TOTP secret for manual entry (Base32)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "2FA already enabled"
+          },
+          "401": {
+            "description": "Invalid password or unauthorized"
+          }
+        },
+        "summary": "Setup 2FA - Step 1: Generate QR code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/enable": {
+      "post": {
+        "description": "Verifies 6-digit code from authenticator app. If valid, enables 2FA and returns backup codes.",
+        "operationId": "AuthController_enable2FA",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Enable2FADto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "2FA enabled successfully. Returns backup codes (save these securely).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "backupCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "One-time backup codes (save these securely)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "2FA already enabled or setup not started"
+          },
+          "401": {
+            "description": "Invalid 2FA code or unauthorized"
+          }
+        },
+        "summary": "Enable 2FA - Step 2: Verify code and activate",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/disable": {
+      "post": {
+        "operationId": "AuthController_disable2FA",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Disable2FADto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "2FA disabled successfully. All sessions invalidated."
+          },
+          "400": {
+            "description": "2FA is not enabled"
+          },
+          "401": {
+            "description": "Invalid password or 2FA code"
+          }
+        },
+        "summary": "Disable 2FA for authenticated user",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/verify": {
+      "post": {
+        "operationId": "AuthController_verify2FA",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verify2FADto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "2FA verified successfully. Tokens set as HTTP-only cookies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object"
+                    },
+                    "usedBackupCode": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid temporary token or 2FA code"
+          },
+          "429": {
+            "description": "Too many failed 2FA attempts. Rate limit: 10 per minute"
+          }
+        },
+        "summary": "Verify 2FA code during login (completes login flow, sets HTTP-only cookies)",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/regenerate-backup-codes": {
+      "post": {
+        "operationId": "AuthController_regenerateBackupCodes",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateBackupCodesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backup codes regenerated successfully. Returns new codes (show once).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "backupCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "New one-time backup codes (save these securely)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "2FA is not enabled"
+          },
+          "401": {
+            "description": "Invalid password or 2FA code"
+          }
+        },
+        "summary": "Regenerate backup codes",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/2fa/status": {
+      "get": {
+        "operationId": "AuthController_get2FAStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "2FA status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "twoFactorEnabled": {
+                      "type": "boolean"
+                    },
+                    "twoFactorEnabledAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "remainingBackupCodes": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Get 2FA status for authenticated user",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/backtest/tasks": {
+      "post": {
+        "description": "Creates a new backtest task with the specified parameters. The task will be queued for processing.",
+        "operationId": "BacktestController_createTask",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBacktestTaskDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Backtest task created successfully"
+          },
+          "400": {
+            "description": "Invalid input or date range"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Create a new backtest task",
+        "tags": [
+          "Backtest"
+        ]
+      },
+      "get": {
+        "description": "Returns a paginated list of backtest tasks for the authenticated user. By default, returns only non-archived and non-deleted tasks.",
+        "operationId": "BacktestController_listTasks",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination",
+            "schema": {
+              "example": "cm1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of tasks per page (default: 20, max: 100)",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter by task status",
+            "schema": {
+              "example": "COMPLETED",
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "QUEUED",
+                "RUNNING",
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "description": "Filter by archive status (default: false - shows only non-archived tasks)",
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "List all backtest tasks",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/tasks/{id}": {
+      "get": {
+        "description": "Returns a specific backtest task including its result summary (without individual trades). Archived tasks are still accessible. Returns 404 only if task is soft deleted or not found.",
+        "operationId": "BacktestController_getTaskById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest task ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task retrieved successfully (including archived tasks)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Task not found or has been deleted"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get backtest task by ID",
+        "tags": [
+          "Backtest"
+        ]
+      },
+      "delete": {
+        "description": "Soft deletes a backtest task. The task will be permanently hidden from all endpoints. Cannot delete a task that is currently running.",
+        "operationId": "BacktestController_deleteTask",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest task ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task deleted successfully"
+          },
+          "400": {
+            "description": "Cannot delete a running task"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Soft delete a backtest task",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/tasks/{id}/archive": {
+      "patch": {
+        "description": "Archives a backtest task. Cannot archive a task that is currently running.",
+        "operationId": "BacktestController_archiveTask",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest task ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task archived successfully"
+          },
+          "400": {
+            "description": "Cannot archive a running task"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Archive a backtest task",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/tasks/{id}/unarchive": {
+      "patch": {
+        "description": "Restores an archived backtest task to active status.",
+        "operationId": "BacktestController_unarchiveTask",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest task ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task unarchived successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Unarchive a backtest task",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/results/{resultId}/trades": {
+      "get": {
+        "description": "Returns individual trades from a backtest result with cursor-based pagination and filtering options. Use this endpoint to retrieve large datasets efficiently.",
+        "operationId": "BacktestController_getResultTrades",
+        "parameters": [
+          {
+            "name": "resultId",
+            "required": true,
+            "in": "path",
+            "description": "Backtest result ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination (last trade ID from previous page)",
+            "schema": {
+              "example": "cm1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of trades to return per page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100,
+              "example": 100,
+              "type": "number"
+            }
+          },
+          {
+            "name": "symbol",
+            "required": false,
+            "in": "query",
+            "description": "Filter by symbol",
+            "schema": {
+              "example": "BTCUSDT",
+              "type": "string"
+            }
+          },
+          {
+            "name": "timeframe",
+            "required": false,
+            "in": "query",
+            "description": "Filter by timeframe",
+            "schema": {
+              "example": "4h",
+              "type": "string"
+            }
+          },
+          {
+            "name": "profitable",
+            "required": false,
+            "in": "query",
+            "description": "Filter by profitability (true = winning trades, false = losing trades)",
+            "schema": {
+              "example": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "exit_reason",
+            "required": false,
+            "in": "query",
+            "description": "Filter by exit reason",
+            "schema": {
+              "example": "stop_loss_hit",
+              "type": "string",
+              "enum": [
+                "stop_loss_hit",
+                "take_profit_hit",
+                "pattern_expired"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trades retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestTradesResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Result not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get backtest result trades with pagination",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/trades/{tradeId}": {
+      "get": {
+        "description": "Returns detailed information about a specific backtest trade including 50 candles before and 50 candles after the first top/bottom from the pattern. This endpoint fetches candle data from the GraphQL chart data service.",
+        "operationId": "BacktestController_getTradeDetails",
+        "parameters": [
+          {
+            "name": "tradeId",
+            "required": true,
+            "in": "path",
+            "description": "Backtest trade ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trade details retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trade not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get backtest trade details with candle data",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/strategies": {
+      "post": {
+        "description": "Creates a new backtest strategy template that can be reused for multiple backtest tasks.",
+        "operationId": "BacktestController_createStrategy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBacktestStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Strategy created successfully"
+          },
+          "400": {
+            "description": "Invalid input or duplicate strategy name"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Create a new backtest strategy",
+        "tags": [
+          "Backtest"
+        ]
+      },
+      "get": {
+        "description": "Returns a paginated list of backtest strategies for the authenticated user. By default, returns only non-archived and non-deleted strategies.",
+        "operationId": "BacktestController_listStrategies",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination",
+            "schema": {
+              "example": "cm1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of strategies per page (default: 20, max: 100)",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "description": "Filter by archive status (default: false - shows only non-archived strategies)",
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategies retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "List all backtest strategies",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/strategies/{id}": {
+      "get": {
+        "description": "Returns a specific backtest strategy. Archived strategies are still accessible. Returns 404 only if strategy is soft deleted or not found.",
+        "operationId": "BacktestController_getStrategyById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy retrieved successfully (including archived strategies)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found or has been deleted"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get backtest strategy by ID",
+        "tags": [
+          "Backtest"
+        ]
+      },
+      "delete": {
+        "description": "Soft deletes a backtest strategy. The strategy will be permanently hidden from all endpoints.",
+        "operationId": "BacktestController_deleteStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy deleted successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Soft delete a backtest strategy",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/strategies/{id}/archive": {
+      "patch": {
+        "description": "Archives a backtest strategy.",
+        "operationId": "BacktestController_archiveStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy archived successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Archive a backtest strategy",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/strategies/{id}/unarchive": {
+      "patch": {
+        "description": "Restores an archived backtest strategy to active status.",
+        "operationId": "BacktestController_unarchiveStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Backtest strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy unarchived successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Unarchive a backtest strategy",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/trading-accounts": {
+      "get": {
+        "description": "Returns all trading accounts for the authenticated user",
+        "operationId": "TradingAccountController_listAccounts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Trading accounts retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "List user trading accounts",
+        "tags": [
+          "Trading Accounts"
+        ]
+      },
+      "post": {
+        "description": "Creates a new trading account with encrypted API credentials. API keys are encrypted before storage.",
+        "operationId": "TradingAccountController_createAccount",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTradingAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Trading account created successfully"
+          },
+          "400": {
+            "description": "Invalid input or unsupported exchange"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Trading account with this name already exists"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Create new trading account",
+        "tags": [
+          "Trading Accounts"
+        ]
+      }
+    },
+    "/trading-accounts/{id}": {
+      "get": {
+        "description": "Returns details of a specific trading account including strategies count and portfolios summary",
+        "operationId": "TradingAccountController_getAccountById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Trading account ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trading account retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trading account not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get trading account details",
+        "tags": [
+          "Trading Accounts"
+        ]
+      },
+      "patch": {
+        "description": "Updates trading account details. Can update name and API credentials. Credentials are re-encrypted if provided.",
+        "operationId": "TradingAccountController_updateAccount",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Trading account ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTradingAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Trading account updated successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trading account not found"
+          },
+          "409": {
+            "description": "Trading account with this name already exists"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Update trading account",
+        "tags": [
+          "Trading Accounts"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a trading account. Validates that there are no active strategies or open positions before deletion.",
+        "operationId": "TradingAccountController_deleteAccount",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Trading account ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trading account deleted successfully"
+          },
+          "400": {
+            "description": "Cannot delete account with active strategies or open positions"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trading account not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Delete trading account",
+        "tags": [
+          "Trading Accounts"
+        ]
+      }
+    },
+    "/trading-accounts/{id}/test-connection": {
+      "post": {
+        "description": "Tests the connection to the exchange using the stored API credentials. Returns account balance if successful.",
+        "operationId": "TradingAccountController_testConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Trading account ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection test completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConnectionResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Failed to decrypt API credentials"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trading account not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Test exchange connection",
+        "tags": [
+          "Trading Accounts"
+        ]
+      }
+    },
+    "/strategies": {
+      "get": {
+        "description": "Returns paginated list of strategies for the authenticated user with optional filters",
+        "operationId": "StrategyController_listStrategies",
+        "parameters": [
+          {
+            "name": "trading_account_id",
+            "required": false,
+            "in": "query",
+            "description": "Filter by trading account ID",
+            "schema": {
+              "example": "clxy1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "required": false,
+            "in": "query",
+            "description": "Filter by trading mode",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REAL",
+                "PAPER"
+              ]
+            }
+          },
+          {
+            "name": "is_live",
+            "required": false,
+            "in": "query",
+            "description": "Filter by live status",
+            "schema": {
+              "example": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_archived",
+            "required": false,
+            "in": "query",
+            "description": "Include archived strategies in results",
+            "schema": {
+              "default": false,
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "archived_only",
+            "required": false,
+            "in": "query",
+            "description": "Show only archived strategies",
+            "schema": {
+              "default": false,
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination (strategy ID)",
+            "schema": {
+              "example": "clxy1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategies retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "List user strategies",
+        "tags": [
+          "Strategies"
+        ]
+      },
+      "post": {
+        "description": "Creates a new trading strategy and an initial portfolio. The portfolio type matches the strategy mode (PAPER by default).",
+        "operationId": "StrategyController_createStrategy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Strategy created successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Trading account not found"
+          },
+          "409": {
+            "description": "Strategy with this name already exists for this account"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Create new strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/public": {
+      "get": {
+        "description": "Returns paginated list of public strategies from all users. User data is anonymized.",
+        "operationId": "StrategyController_listPublicStrategies",
+        "parameters": [
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Search by strategy name or description",
+            "schema": {
+              "example": "double bottom",
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "Sort order",
+            "schema": {
+              "default": "newest",
+              "type": "string",
+              "enum": [
+                "popular",
+                "performance",
+                "newest"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination (strategy ID)",
+            "schema": {
+              "example": "clxy1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public strategies retrieved successfully"
+          }
+        },
+        "summary": "Browse public strategies marketplace",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/{id}": {
+      "get": {
+        "description": "Returns detailed information about a strategy including portfolios and trading account. User must own the strategy OR strategy must be public.",
+        "operationId": "StrategyController_getStrategyById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "You do not have access to this strategy"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get strategy details",
+        "tags": [
+          "Strategies"
+        ]
+      },
+      "patch": {
+        "description": "Updates strategy configuration. Cannot change mode while is_live=true. Cannot switch to REAL mode without a REAL portfolio.",
+        "operationId": "StrategyController_updateStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Strategy updated successfully"
+          },
+          "400": {
+            "description": "Invalid update - check validation rules"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          },
+          "409": {
+            "description": "Strategy with this name already exists for this account"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Update strategy settings",
+        "tags": [
+          "Strategies"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a strategy. Cannot delete if is_live=true or if there are open positions. This action is permanent.",
+        "operationId": "StrategyController_deleteStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy deleted successfully"
+          },
+          "400": {
+            "description": "Cannot delete - strategy is live or has open positions"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Delete strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/{id}/copy": {
+      "post": {
+        "description": "Creates a copy of a public strategy linked to your trading account. The copied strategy starts in PAPER mode and is_live=false.",
+        "operationId": "StrategyController_copyStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Source strategy ID to copy",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Strategy copied successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Source strategy is not public"
+          },
+          "404": {
+            "description": "Strategy or trading account not found"
+          },
+          "409": {
+            "description": "Strategy with this name already exists for this account"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Copy a public strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/{id}/archive": {
+      "post": {
+        "description": "Archives a strategy. Cannot archive if is_live=true. Archived strategies are hidden by default but can be filtered in list endpoints.",
+        "operationId": "StrategyController_archiveStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy archived successfully"
+          },
+          "400": {
+            "description": "Cannot archive - strategy is live or already archived"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Archive strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/{id}/unarchive": {
+      "post": {
+        "description": "Unarchives a strategy. Strategy must be archived.",
+        "operationId": "StrategyController_unarchiveStrategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy unarchived successfully"
+          },
+          "400": {
+            "description": "Cannot unarchive - strategy is not archived"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Unarchive strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/strategies/{strategyId}/portfolios": {
+      "get": {
+        "description": "Returns both REAL and PAPER portfolios for a strategy (if they exist)",
+        "operationId": "PortfolioController_getStrategyPortfolios",
+        "parameters": [
+          {
+            "name": "strategyId",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolios retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get portfolios for a strategy",
+        "tags": [
+          "Portfolios"
+        ]
+      }
+    },
+    "/portfolios/{id}": {
+      "get": {
+        "description": "Returns detailed information about a portfolio including strategy info and calculated equity",
+        "operationId": "PortfolioController_getPortfolioById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Portfolio ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Portfolio not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get portfolio details",
+        "tags": [
+          "Portfolios"
+        ]
+      },
+      "patch": {
+        "description": "Deposits or withdraws funds from a portfolio. Cannot do both in same request. For PAPER portfolios: updates database only. For REAL portfolios: may require exchange API integration.",
+        "operationId": "PortfolioController_updatePortfolio",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Portfolio ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePortfolioDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Portfolio updated successfully"
+          },
+          "400": {
+            "description": "Invalid request - cannot deposit and withdraw simultaneously, or insufficient balance"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Portfolio not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Update portfolio (deposit/withdrawal)",
+        "tags": [
+          "Portfolios"
+        ]
+      }
+    },
+    "/portfolios/{id}/performance": {
+      "get": {
+        "description": "Returns time-series performance data for a portfolio. NOTE: Historical snapshots not yet implemented - returns initial and current values only.",
+        "operationId": "PortfolioController_getPortfolioPerformance",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Portfolio ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "timeframe",
+            "required": false,
+            "in": "query",
+            "description": "Performance timeframe",
+            "schema": {
+              "default": "1M",
+              "type": "string",
+              "enum": [
+                "1D",
+                "1W",
+                "1M",
+                "3M",
+                "1Y",
+                "ALL"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio performance retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Portfolio not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get portfolio performance over time",
+        "tags": [
+          "Portfolios"
+        ]
+      }
+    },
+    "/strategies/{strategyId}/positions": {
+      "get": {
+        "description": "Returns paginated list of positions for a strategy. Queries from Position or PaperPosition table based on mode parameter.",
+        "operationId": "PositionController_getStrategyPositions",
+        "parameters": [
+          {
+            "name": "strategyId",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "required": true,
+            "in": "query",
+            "description": "Trading mode (REAL or PAPER)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REAL",
+                "PAPER"
+              ]
+            }
+          },
+          {
+            "name": "symbol",
+            "required": false,
+            "in": "query",
+            "description": "Filter by symbol",
+            "schema": {
+              "example": "BTCUSDT",
+              "type": "string"
+            }
+          },
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "description": "Filter by position side (LONG or SHORT)",
+            "schema": {
+              "example": "LONG",
+              "type": "string",
+              "enum": [
+                "LONG",
+                "SHORT"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter by status (is_active)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "CLOSED"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination (position ID)",
+            "schema": {
+              "example": "clxy1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Positions retrieved successfully with summary"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get positions for a strategy",
+        "tags": [
+          "Positions"
+        ]
+      }
+    },
+    "/positions/{id}": {
+      "get": {
+        "description": "Returns detailed information about a specific position (REAL or PAPER based on mode parameter)",
+        "operationId": "PositionController_getPositionById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Position ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Position retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Position not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get position details",
+        "tags": [
+          "Positions"
+        ]
+      }
+    },
+    "/positions/{id}/chart-data": {
+      "get": {
+        "description": "Fetches candle data from GraphQL service for visualizing the position on a chart. Returns candles before and after position entry time.",
+        "operationId": "PositionController_getPositionChartData",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Position ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "required": true,
+            "in": "query",
+            "description": "Trading mode (REAL or PAPER)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REAL",
+                "PAPER"
+              ]
+            }
+          },
+          {
+            "name": "candles_before",
+            "required": false,
+            "in": "query",
+            "description": "Number of candles before entry",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "example": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "candles_after",
+            "required": false,
+            "in": "query",
+            "description": "Number of candles after entry",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "example": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Candle data retrieved successfully"
+          },
+          "400": {
+            "description": "Failed to fetch candle data"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Position not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get candle data for position chart",
+        "tags": [
+          "Positions"
+        ]
+      }
+    },
+    "/dashboard/summary": {
+      "get": {
+        "description": "Returns aggregated dashboard data including total strategies, portfolios value, P&L, and top performing strategies. Note: today_pnl and performance_7d are approximations. Implement historical snapshot tracking for accurate calculations.",
+        "operationId": "DashboardController_getDashboardSummary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Dashboard summary retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_strategies": {
+                      "type": "number",
+                      "example": 5
+                    },
+                    "live_strategies": {
+                      "type": "number",
+                      "example": 2
+                    },
+                    "total_portfolios_value": {
+                      "type": "number",
+                      "example": 25000.5
+                    },
+                    "today_pnl": {
+                      "type": "number",
+                      "example": 150.25
+                    },
+                    "open_positions": {
+                      "type": "number",
+                      "example": 3
+                    },
+                    "strategies_by_performance": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "strategy": {
+                            "type": "object"
+                          },
+                          "portfolio": {
+                            "type": "object"
+                          },
+                          "performance_7d": {
+                            "type": "number",
+                            "example": 5.2
+                          }
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get dashboard summary",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Crypto Watcher Bot API",
+    "description": "API for crypto trading signal bot with automated order execution",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "User authentication and authorization endpoints"
+    },
+    {
+      "name": "Backtest",
+      "description": "Backtest task and result management endpoints"
+    },
+    {
+      "name": "Users",
+      "description": "User management endpoints"
+    },
+    {
+      "name": "Trading Accounts",
+      "description": "Trading account management"
+    },
+    {
+      "name": "Strategies",
+      "description": "Trading strategy configuration"
+    },
+    {
+      "name": "Orders",
+      "description": "Order management and execution"
+    },
+    {
+      "name": "Positions",
+      "description": "Position tracking and management"
+    },
+    {
+      "name": "Signals",
+      "description": "Crypto trading signals"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "JWT-auth": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "name": "JWT",
+        "description": "Enter JWT token",
+        "in": "header"
+      }
+    },
+    "schemas": {
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address",
+            "example": "user@example.com"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password (minimum 8 characters, must contain uppercase, lowercase, and number or special character)",
+            "example": "SecurePass123!",
+            "minLength": 8
+          },
+          "name": {
+            "type": "string",
+            "description": "User full name",
+            "example": "John Doe"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "VerifyEmailDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address",
+            "example": "user@example.com"
+          },
+          "code": {
+            "type": "string",
+            "description": "6-digit verification code",
+            "example": "123456",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ]
+      },
+      "ResendVerificationDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address to resend verification code",
+            "example": "user@example.com"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address",
+            "example": "user@example.com"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password",
+            "example": "password123"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address to reset password",
+            "example": "user@example.com"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "VerifyResetCodeDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address",
+            "example": "user@example.com"
+          },
+          "code": {
+            "type": "string",
+            "description": "6-digit password reset code",
+            "example": "123456",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "User email address",
+            "example": "user@example.com"
+          },
+          "code": {
+            "type": "string",
+            "description": "6-digit password reset code",
+            "example": "123456",
+            "minLength": 6,
+            "maxLength": 6
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "New password (minimum 8 characters, must contain uppercase, lowercase, and number or special character)",
+            "example": "SecurePass123!",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "email",
+          "code",
+          "newPassword"
+        ]
+      },
+      "SetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "example": "NewSecurePassword123!",
+            "description": "New password to set for OAuth users"
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
+      "Setup2FADto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Current password to confirm identity",
+            "example": "MySecurePassword123!"
+          }
+        },
+        "required": [
+          "currentPassword"
+        ]
+      },
+      "Enable2FADto": {
+        "type": "object",
+        "properties": {
+          "twoFactorCode": {
+            "type": "string",
+            "description": "6-digit code from authenticator app to verify 2FA setup",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "twoFactorCode"
+        ]
+      },
+      "Disable2FADto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Current password to confirm identity",
+            "example": "MySecurePassword123!"
+          },
+          "twoFactorCode": {
+            "type": "string",
+            "description": "6-digit 2FA code or backup code to verify identity",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "twoFactorCode"
+        ]
+      },
+      "Verify2FADto": {
+        "type": "object",
+        "properties": {
+          "tempToken": {
+            "type": "string",
+            "description": "Temporary token received after successful password verification",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "code": {
+            "type": "string",
+            "description": "6-digit 2FA code from authenticator app or backup code",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "tempToken",
+          "code"
+        ]
+      },
+      "RegenerateBackupCodesDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Current password to confirm identity",
+            "example": "MySecurePassword123!"
+          },
+          "twoFactorCode": {
+            "type": "string",
+            "description": "6-digit 2FA code from authenticator app",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "twoFactorCode"
+        ]
+      },
+      "BacktestStrategyConfigDto": {
+        "type": "object",
+        "properties": {
+          "strategy_type": {
+            "type": "string",
+            "description": "Strategy type identifier",
+            "example": "pattern_breakout"
+          },
+          "allowed_patterns": {
+            "description": "List of allowed pattern types to trade",
+            "example": [
+              "double_top",
+              "double_bottom",
+              "head_shoulders"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk_mode": {
+            "type": "string",
+            "description": "Risk calculation mode",
+            "enum": [
+              "PERCENTAGE",
+              "FIXED_AMOUNT"
+            ],
+            "example": "PERCENTAGE"
+          },
+          "risk_per_trade_percentage": {
+            "type": "number",
+            "description": "Risk percentage per trade (required if risk_mode is \"PERCENTAGE\")",
+            "example": 5,
+            "minimum": 0.1,
+            "maximum": 100
+          },
+          "fixed_risk_amount": {
+            "type": "number",
+            "description": "Fixed risk amount in USD per trade (required if risk_mode is \"FIXED_AMOUNT\")",
+            "example": 100,
+            "minimum": 1
+          },
+          "initial_capital": {
+            "type": "number",
+            "description": "Initial capital for the backtest in USD",
+            "example": 10000,
+            "minimum": 100
+          },
+          "min_risk_ratio": {
+            "type": "number",
+            "description": "Minimum acceptable risk/reward ratio",
+            "example": 1.5
+          },
+          "max_risk_ratio": {
+            "type": "number",
+            "description": "Maximum acceptable risk/reward ratio",
+            "example": 5
+          },
+          "position_type": {
+            "type": "string",
+            "description": "Position type filter (LONG or SHORT)",
+            "enum": [
+              "LONG",
+              "SHORT"
+            ],
+            "example": "LONG"
+          },
+          "max_leverage": {
+            "type": "number",
+            "description": "Maximum leverage to use",
+            "example": 3,
+            "minimum": 1
+          },
+          "trading_fee_percentage": {
+            "type": "number",
+            "description": "Trading fee percentage (e.g., 0.1 for 0.1%)",
+            "example": 0.1,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "strategy_type",
+          "risk_mode",
+          "initial_capital"
+        ]
+      },
+      "CreateBacktestTaskDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "User-friendly name for the backtest",
+            "example": "Double Top Strategy - Q1 2024"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the backtest",
+            "example": "Testing double top pattern across major pairs"
+          },
+          "strategy_id": {
+            "type": "string",
+            "description": "Optional strategy template ID to use",
+            "example": "cm1234567890abcdefghijk"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Queue priority for the backtest task",
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ],
+            "default": "normal",
+            "example": "normal"
+          },
+          "symbols": {
+            "description": "List of symbols to backtest",
+            "example": [
+              "BTCUSDT",
+              "ETHUSDT",
+              "SOLUSDT"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeframes": {
+            "description": "List of timeframes to backtest",
+            "example": [
+              "4h",
+              "1h"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date for backtest (ISO 8601 format)",
+            "example": "2024-01-01T00:00:00.000Z"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date for backtest (ISO 8601 format)",
+            "example": "2024-12-31T23:59:59.999Z"
+          },
+          "is_combine_timeframe": {
+            "type": "boolean",
+            "description": "If true, create separate backtest tasks for each timeframe. If false, combine all timeframes in a single task.",
+            "example": false,
+            "default": false
+          },
+          "is_combine_symbol": {
+            "type": "boolean",
+            "description": "If true, create separate backtest tasks for each symbol. If false, combine all symbols in a single task.",
+            "example": false,
+            "default": false
+          },
+          "strategy_config": {
+            "description": "Strategy configuration for the backtest",
+            "examples": {
+              "percentage_mode": {
+                "summary": "Percentage Risk Mode",
+                "value": {
+                  "strategy_type": "pattern_breakout",
+                  "allowed_patterns": [
+                    "double_top",
+                    "double_bottom"
+                  ],
+                  "risk_mode": "PERCENTAGE",
+                  "risk_per_trade_percentage": 5,
+                  "initial_capital": 10000,
+                  "min_risk_ratio": 1.5,
+                  "position_type": "long"
+                }
+              },
+              "fixed_amount_mode": {
+                "summary": "Fixed Amount Risk Mode",
+                "value": {
+                  "strategy_type": "pattern_breakout",
+                  "allowed_patterns": [
+                    "double_top",
+                    "double_bottom",
+                    "head_shoulders"
+                  ],
+                  "risk_mode": "FIXED_AMOUNT",
+                  "fixed_risk_amount": 100,
+                  "initial_capital": 10000,
+                  "max_risk_ratio": 5
+                }
+              }
+            },
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BacktestStrategyConfigDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "symbols",
+          "timeframes",
+          "start_date",
+          "end_date",
+          "strategy_config"
+        ]
+      },
+      "PaginationMetaDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Total number of items matching the filter"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of items per page"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Cursor for the next page (null if no more pages)",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether there are more pages available"
+          }
+        },
+        "required": [
+          "total",
+          "limit",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "TradesSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total_trades": {
+            "type": "number",
+            "description": "Total trades in filtered result"
+          },
+          "winning_trades": {
+            "type": "number",
+            "description": "Number of winning trades"
+          },
+          "losing_trades": {
+            "type": "number",
+            "description": "Number of losing trades"
+          },
+          "win_rate": {
+            "type": "number",
+            "description": "Win rate percentage"
+          },
+          "total_pnl": {
+            "type": "number",
+            "description": "Total net PnL"
+          }
+        },
+        "required": [
+          "total_trades",
+          "winning_trades",
+          "losing_trades",
+          "win_rate",
+          "total_pnl"
+        ]
+      },
+      "BacktestTradesResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Array of backtest trades"
+          },
+          "pagination": {
+            "description": "Pagination metadata",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMetaDto"
+              }
+            ]
+          },
+          "summary": {
+            "description": "Summary statistics for filtered trades",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TradesSummaryDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "pagination",
+          "summary"
+        ]
+      },
+      "CreateBacktestStrategyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "User-friendly name for the strategy",
+            "example": "Aggressive Double Top Strategy"
+          },
+          "strategy_type": {
+            "type": "string",
+            "description": "Strategy type identifier",
+            "example": "pattern_breakout"
+          },
+          "allowed_patterns": {
+            "description": "List of allowed pattern types to trade",
+            "example": [
+              "double_top",
+              "double_bottom"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_symbols": {
+            "description": "List of allowed symbols (empty array or omit for all symbols)",
+            "example": [
+              "BTCUSDT",
+              "ETHUSDT"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeframes": {
+            "description": "List of allowed timeframes (empty array or omit for all timeframes)",
+            "example": [
+              "4h",
+              "1h"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "position_type": {
+            "type": "string",
+            "description": "Position type filter (LONG, SHORT, or omit for both)",
+            "enum": [
+              "LONG",
+              "SHORT"
+            ],
+            "example": "LONG"
+          },
+          "config": {
+            "description": "Strategy configuration including risk management",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BacktestStrategyConfigDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "strategy_type",
+          "allowed_patterns",
+          "config"
+        ]
+      },
+      "CreateTradingAccountDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the trading account",
+            "example": "My Binance Account"
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Exchange name",
+            "example": "binance",
+            "enum": [
+              "binance"
+            ]
+          },
+          "api_key": {
+            "type": "string",
+            "description": "Exchange API key",
+            "example": "your_api_key_here"
+          },
+          "api_secret": {
+            "type": "string",
+            "description": "Exchange API secret",
+            "example": "your_api_secret_here"
+          },
+          "initial_balance": {
+            "type": "number",
+            "description": "Initial balance for paper trading portfolio",
+            "example": 10000,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "exchange",
+          "api_key",
+          "api_secret"
+        ]
+      },
+      "UpdateTradingAccountDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the trading account",
+            "example": "My Updated Binance Account"
+          },
+          "api_key": {
+            "type": "string",
+            "description": "Exchange API key",
+            "example": "your_new_api_key_here"
+          },
+          "api_secret": {
+            "type": "string",
+            "description": "Exchange API secret",
+            "example": "your_new_api_secret_here"
+          }
+        }
+      },
+      "TestConnectionResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the connection was successful",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Connection status message",
+            "example": "Connection successful"
+          },
+          "balance": {
+            "type": "number",
+            "description": "Account balance from exchange (if successful)",
+            "example": 10000.5
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ]
+      },
+      "CreateStrategyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Strategy name",
+            "example": "My Double Bottom Strategy"
+          },
+          "description": {
+            "type": "string",
+            "description": "Strategy description",
+            "example": "Conservative double bottom pattern strategy"
+          },
+          "trading_account_id": {
+            "type": "string",
+            "description": "Trading account ID",
+            "example": "clxy1234567890abcdefghijk"
+          },
+          "trade_size_type": {
+            "type": "string",
+            "description": "Trade size type",
+            "enum": [
+              "PERCENTAGE",
+              "USD"
+            ],
+            "default": "PERCENTAGE"
+          },
+          "trade_size_amount": {
+            "type": "number",
+            "description": "Trade size amount",
+            "example": 5,
+            "default": 5
+          },
+          "trade_size_benchmark": {
+            "type": "string",
+            "description": "Trade size benchmark",
+            "enum": [
+              "BALANCE",
+              "SL",
+              "TP"
+            ],
+            "default": "SL"
+          },
+          "min_risk_ratio": {
+            "type": "number",
+            "description": "Minimum risk ratio filter",
+            "example": 1.5
+          },
+          "max_risk_ratio": {
+            "type": "number",
+            "description": "Maximum risk ratio filter",
+            "example": 10
+          },
+          "allowed_signals": {
+            "description": "Allowed signal patterns",
+            "example": [
+              "double_bottom",
+              "double_top"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "allowed_symbols": {
+            "description": "Allowed trading symbols",
+            "example": [
+              "BTCUSDT",
+              "ETHUSDT"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "allowed_timeframes": {
+            "description": "Allowed timeframes",
+            "example": [
+              "1m",
+              "15m",
+              "1h",
+              "4h"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Trading mode (REAL or PAPER)",
+            "enum": [
+              "REAL",
+              "PAPER"
+            ],
+            "default": "PAPER"
+          },
+          "is_live": {
+            "type": "boolean",
+            "description": "Is strategy currently running",
+            "default": false
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Is strategy visible to other users",
+            "default": false
+          },
+          "initial_capital": {
+            "type": "number",
+            "description": "Initial capital for portfolio",
+            "example": 10000
+          }
+        },
+        "required": [
+          "name",
+          "trading_account_id",
+          "initial_capital"
+        ]
+      },
+      "CopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "trading_account_id": {
+            "type": "string",
+            "description": "Trading account ID to link the copied strategy to",
+            "example": "clxy1234567890abcdefghijk"
+          },
+          "name": {
+            "type": "string",
+            "description": "Custom name for the copied strategy (defaults to \"Copy of {original}\")",
+            "example": "My Custom Strategy Name"
+          }
+        },
+        "required": [
+          "trading_account_id"
+        ]
+      },
+      "UpdateStrategyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Strategy name",
+            "example": "My Updated Strategy"
+          },
+          "description": {
+            "type": "string",
+            "description": "Strategy description",
+            "example": "Updated strategy description"
+          },
+          "is_live": {
+            "type": "boolean",
+            "description": "Is strategy currently running"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Trading mode (REAL or PAPER)",
+            "enum": [
+              "REAL",
+              "PAPER"
+            ]
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Is strategy visible to other users"
+          },
+          "trade_size_type": {
+            "type": "string",
+            "description": "Trade size type",
+            "enum": [
+              "PERCENTAGE",
+              "USD"
+            ]
+          },
+          "trade_size_amount": {
+            "type": "number",
+            "description": "Trade size amount",
+            "example": 5
+          },
+          "trade_size_benchmark": {
+            "type": "string",
+            "description": "Trade size benchmark",
+            "enum": [
+              "BALANCE",
+              "SL",
+              "TP"
+            ]
+          },
+          "min_risk_ratio": {
+            "type": "number",
+            "description": "Minimum risk ratio filter",
+            "example": 1.5
+          },
+          "max_risk_ratio": {
+            "type": "number",
+            "description": "Maximum risk ratio filter",
+            "example": 10
+          },
+          "allowed_signals": {
+            "description": "Allowed signal patterns",
+            "example": [
+              "double_bottom",
+              "double_top"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "allowed_symbols": {
+            "description": "Allowed trading symbols",
+            "example": [
+              "BTCUSDT",
+              "ETHUSDT"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "allowed_timeframes": {
+            "description": "Allowed timeframes",
+            "example": [
+              "1m",
+              "15m",
+              "1h",
+              "4h"
+            ],
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Is strategy active"
+          }
+        }
+      },
+      "UpdatePortfolioDto": {
+        "type": "object",
+        "properties": {
+          "deposit": {
+            "type": "number",
+            "description": "Amount to deposit",
+            "example": 1000,
+            "minimum": 0
+          },
+          "withdrawal": {
+            "type": "number",
+            "description": "Amount to withdraw",
+            "example": 500,
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

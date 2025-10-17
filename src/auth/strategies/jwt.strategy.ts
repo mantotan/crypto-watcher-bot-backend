@@ -1,20 +1,30 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
+import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface JwtPayload {
   sub: string;
   email: string;
+  two_factor_enabled_at?: number; // Unix timestamp for JWT invalidation
+  password_changed_at?: number; // Unix timestamp for JWT invalidation
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: (req: Request) => {
+        // Extract JWT from HTTP-only cookie only (no Authorization header support)
+        if (!req || !req.cookies) {
+          return null;
+        }
+        return req.cookies.accessToken || null;
+      },
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_ACCESS_SECRET,
+      passReqToCallback: false,
     });
   }
 
@@ -26,6 +36,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: true,
         name: true,
         created_at: true,
+        two_factor_enabled_at: true,
+        password_changed_at: true,
       },
     });
 
@@ -33,6 +45,38 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found');
     }
 
-    return user;
+    // SECURITY: Invalidate token if 2FA was enabled/disabled after token was issued
+    const tokenTwoFactorEnabledAt = payload.two_factor_enabled_at || null;
+    const userTwoFactorEnabledAt = user.two_factor_enabled_at
+      ? Math.floor(user.two_factor_enabled_at.getTime() / 1000)
+      : null;
+
+    if (tokenTwoFactorEnabledAt !== userTwoFactorEnabledAt) {
+      throw new UnauthorizedException(
+        'Session expired - 2FA settings changed. Please log in again.'
+      );
+    }
+
+    // SECURITY: Invalidate token if password was changed after token was issued
+    const tokenPasswordChangedAt = payload.password_changed_at || null;
+    const userPasswordChangedAt = user.password_changed_at
+      ? Math.floor(user.password_changed_at.getTime() / 1000)
+      : null;
+
+    if (
+      tokenPasswordChangedAt !== userPasswordChangedAt &&
+      userPasswordChangedAt !== null
+    ) {
+      throw new UnauthorizedException(
+        'Session expired - password changed. Please log in again.'
+      );
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      created_at: user.created_at,
+    };
   }
 }

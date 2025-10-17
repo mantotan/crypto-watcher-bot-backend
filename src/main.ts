@@ -2,13 +2,21 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { SwaggerConfig } from './config/swagger.config';
+import * as compression from 'compression';
+import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS
+  // Enable cookie parsing for HTTP-only cookie authentication
+  app.use(cookieParser());
+
+  // Enable gzip compression for large responses
+  app.use(compression());
+
+  // Enable CORS with credentials for HTTP-only cookies
   app.enableCors({
-    origin: '*', // Allow all origins for now
+    origin: process.env.FRONTEND_URL || 'http://localhost:3006',
     credentials: true,
   });
 
