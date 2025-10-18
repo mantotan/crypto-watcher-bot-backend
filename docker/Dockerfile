@@ -22,8 +22,8 @@ RUN pnpm prisma generate
 # Build the application
 RUN pnpm build
 
-# Production stage
-FROM node:20-alpine
+# Production dependencies stage
+FROM node:20-alpine AS prod-deps
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -37,12 +37,26 @@ COPY prisma ./prisma/
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile
 
+# Generate Prisma Client in production dependencies
+RUN pnpm prisma generate
+
+# Production stage
+FROM node:20-alpine
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy package files and prisma schema
+COPY package.json pnpm-lock.yaml ./
+COPY prisma ./prisma/
+
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.pnpm ./node_modules/.pnpm
 
-# Generate Prisma Client in production
-RUN pnpm prisma generate
+# Copy production dependencies from prod-deps stage
+COPY --from=prod-deps /app/node_modules ./node_modules
 
 # Expose port
 EXPOSE 3733

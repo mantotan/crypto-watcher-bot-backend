@@ -25,7 +25,19 @@ RUN pnpm prisma generate
 # Build TypeScript to JavaScript
 RUN pnpm build
 
-# Remove dev dependencies to reduce size
+# Production dependencies stage
+FROM node:20-alpine AS prod-deps
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+COPY prisma ./prisma/
+
+# Install ONLY production dependencies
 RUN pnpm install --prod --frozen-lockfile
 
 # Production stage
@@ -39,11 +51,13 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
-# Copy from builder (not source code)
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+# Copy from builder (dist and prisma)
 COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --from=builder --chown=node:node /app/package*.json ./
 COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --from=builder --chown=node:node /app/package*.json ./
+
+# Copy production dependencies from prod-deps stage
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 
 # Copy initialization script
 COPY --chown=node:node scripts/wait-for-db.sh ./scripts/
