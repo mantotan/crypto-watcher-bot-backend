@@ -9,7 +9,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:generate": "npx prisma generate",
     "openapi:export": "ts-node scripts/export-openapi.ts",

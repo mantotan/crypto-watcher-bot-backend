@@ -74,10 +74,10 @@ EXPOSE 3733
 
 # Health check - verify the NestJS app process is running
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD pgrep -f 'node dist/main' || exit 1
+  CMD pgrep -f 'node dist/src/main' || exit 1
 
 # Use tini for proper signal handling
 ENTRYPOINT ["/sbin/tini", "--"]
 
 # Start the application via initialization script
-CMD ["./scripts/wait-for-db.sh", "node", "dist/main.js"]
+CMD ["./scripts/wait-for-db.sh", "node", "dist/src/main.js"]
