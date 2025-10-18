@@ -15,9 +15,35 @@ async function bootstrap() {
   app.use(compression());
 
   // Enable CORS with credentials for HTTP-only cookies
+  // Remove quotes from environment variable if present
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3006')
+    .replace(/^["']|["']$/g, '')
+    .trim();
+
+  console.log(`[CORS] Configured origin: ${frontendUrl}`);
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3006',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, or server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Check if origin matches the configured frontend URL
+      if (origin === frontendUrl) {
+        callback(null, true);
+      } else {
+        console.warn(`[CORS] Blocked request from origin: ${origin} (expected: ${frontendUrl})`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Set-Cookie'],
+    maxAge: 86400, // 24 hours - cache preflight requests
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   // Enable global validation
