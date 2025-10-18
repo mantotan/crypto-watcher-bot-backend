@@ -5,7 +5,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: crypto_watcher_api
+    container_name: crypto_watcher_bot_api
     ports:
       - "3733:3733"
     environment:
@@ -21,14 +21,12 @@ services:
     networks:
       - shared
     restart: unless-stopped
-    depends_on:
-      - crypto_watcher_trade_db
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3733/auth/me"]
+      test: ["CMD-SHELL", "pgrep -f 'node dist/main' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
 networks:
   shared:
