@@ -25,6 +25,23 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  /**
+   * Get cookie domain based on environment configuration
+   * - Development: Uses 'localhost' to work across different ports
+   * - Production: Uses COOKIE_DOMAIN env var (e.g., '.example.com' for subdomain sharing)
+   */
+  private getCookieDomain(): string | undefined {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (!isProduction) {
+      return 'localhost';
+    }
+
+    // In production, use COOKIE_DOMAIN if set, otherwise undefined (browser default)
+    const cookieDomain = process.env.COOKIE_DOMAIN;
+    return cookieDomain || undefined;
+  }
+
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({
@@ -249,12 +266,13 @@ export class AuthController {
 
     // SECURITY: Set tokens in HTTP-only cookies instead of URL params
     const isProduction = process.env.NODE_ENV === 'production';
+    const cookieDomain = this.getCookieDomain();
 
     res.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
       secure: isProduction, // HTTPS only in production
       sameSite: 'lax',
-      domain: isProduction ? undefined : 'localhost', // Share across localhost ports in dev
+      domain: cookieDomain, // Configurable domain for multi-subdomain support
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/',
     });
@@ -263,7 +281,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProduction, // HTTPS only in production
       sameSite: 'strict',
-      domain: isProduction ? undefined : 'localhost', // Share across localhost ports in dev
+      domain: cookieDomain, // Configurable domain for multi-subdomain support
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });

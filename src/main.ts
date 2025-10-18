@@ -22,6 +22,14 @@ async function bootstrap() {
 
   console.log(`[CORS] Configured origin: ${frontendUrl}`);
 
+  // Cookie domain configuration
+  const cookieDomain = process.env.COOKIE_DOMAIN;
+  if (cookieDomain) {
+    console.log(`[COOKIES] Configured domain: ${cookieDomain}`);
+  } else {
+    console.log(`[COOKIES] Using browser default domain (no COOKIE_DOMAIN set)`);
+  }
+
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, Postman, or server-to-server)

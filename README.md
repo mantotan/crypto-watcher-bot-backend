@@ -308,6 +308,9 @@ See `prisma/schema.prisma` for the complete schema.
 | `JWT_ACCESS_EXPIRES_IN` | Access token expiry | `24h` |
 | `JWT_REFRESH_SECRET` | Secret for refresh tokens | Required |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token expiry | `7d` |
+| `FRONTEND_URL` | Frontend origin for CORS | `http://localhost:3006` |
+| `COOKIE_DOMAIN` | Cookie domain for auth (optional) | Empty (browser default) |
+| `ENCRYPTION_KEY` | AES-256 key for sensitive data | Required (64 hex chars) |
 
 ## API Documentation
 

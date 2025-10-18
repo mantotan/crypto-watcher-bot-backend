@@ -255,6 +255,25 @@ FRONTEND_URL=http://localhost:3006
 
 CORS is now configured to use this environment variable.
 
+### Multi-Subdomain Cookie Sharing
+
+If you need cookies to work across multiple subdomains (e.g., `bot.example.com` and `bot-api.example.com`), configure `COOKIE_DOMAIN`:
+
+```env
+# For multi-subdomain setup
+# Use parent domain with leading dot to share cookies across subdomains
+COOKIE_DOMAIN=.example.com
+
+# For single domain setup
+# Leave empty to use browser default (most secure)
+COOKIE_DOMAIN=
+```
+
+**When to use:**
+- ✅ Multi-subdomain architecture (frontend on `bot.domain.com`, API on `bot-api.domain.com`)
+- ✅ Need same cookies accessible from different subdomains
+- ❌ Single domain setup (leave empty for better security isolation)
+
 ---
 
 ## Common Issues
