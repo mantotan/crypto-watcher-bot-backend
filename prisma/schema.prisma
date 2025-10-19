@@ -247,17 +247,24 @@ model TradingAccount {
   api_key      String    @db.Text // Encrypted
   secret_key   String    @db.Text // Encrypted
   encrypted_at DateTime? @db.Timestamptz // When keys were last encrypted
+
+  // Fee configuration (configurable per exchange/account)
+  maker_fee    Decimal   @default(0.02) @db.Decimal(6, 4) // 0.02% default
+  taker_fee    Decimal   @default(0.05) @db.Decimal(6, 4) // 0.05% default
+  max_leverage Decimal   @default(125) @db.Decimal(10, 2) // Max leverage up to 125x
+
   created_at   DateTime  @default(now()) @db.Timestamptz
   updated_at   DateTime  @updatedAt @db.Timestamptz
 
-  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  strategies      Strategy[]
-  orders          Order[]
-  positions       Position[]
-  order_logs      OrderLog[]
-  portfolios      Portfolio[]
-  paper_positions PaperPosition[]
-  paper_trades    PaperTrade[]
+  user             User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  strategies       Strategy[]
+  orders           Order[]
+  positions        Position[]
+  order_logs       OrderLog[]
+  portfolios       Portfolio[]
+  paper_positions  PaperPosition[]
+  paper_trades     PaperTrade[]
+  rejected_signals RejectedSignal[]
 
   @@unique([user_id, name])
   @@index([user_id])
@@ -294,12 +301,13 @@ model Strategy {
   archived_at DateTime? @db.Timestamptz
   deleted_at  DateTime? @db.Timestamptz
 
-  account         TradingAccount  @relation(fields: [account_id], references: [id], onDelete: Cascade)
-  orders          Order[]
-  positions       Position[]
-  portfolios      Portfolio[]
-  paper_positions PaperPosition[]
-  paper_trades    PaperTrade[]
+  account          TradingAccount   @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  orders           Order[]
+  positions        Position[]
+  portfolios       Portfolio[]
+  paper_positions  PaperPosition[]
+  paper_trades     PaperTrade[]
+  rejected_signals RejectedSignal[]
 
   // PostgreSQL-specific: Allows one active strategy per name (deleted_at=NULL)
   // and multiple deleted strategies with same name (deleted_at is unique timestamp)
@@ -512,10 +520,14 @@ model PaperPosition {
   unrealized_pnl Decimal?     @db.Decimal(12, 2)
 
   // Risk management
-  margin         Decimal?     @db.Decimal(12, 2)
-  leverage       Decimal?     @db.Decimal(10, 2)
-  reward_risk_ratio Decimal?  @db.Decimal(10, 4)
+  margin              Decimal?     @db.Decimal(12, 2)
+  leverage            Decimal?     @db.Decimal(10, 2)
+  liquidation_price   Decimal?     @db.Decimal(20, 8) // Price at which position gets liquidated
+  reward_risk_ratio   Decimal?     @db.Decimal(10, 4)
   stop_loss_distance_percent Decimal? @db.Decimal(10, 4)
+
+  // Funding rate tracking (perpetual futures)
+  accumulated_funding_rate Decimal @default(0) @db.Decimal(12, 4) // Total funding fees accrued
 
   // Status
   is_active      Boolean      @default(true)
@@ -569,16 +581,18 @@ model PaperTrade {
   exit_commission Decimal     @default(0) @db.Decimal(12, 2) // Simulated exit fee
 
   // Risk management metrics
-  leverage       Decimal      @db.Decimal(10, 4)
-  margin_used    Decimal      @db.Decimal(12, 2)
-  reward_risk_ratio Decimal   @db.Decimal(10, 4)
-  stop_loss_distance_percent Decimal @db.Decimal(10, 4)
+  leverage                     Decimal @db.Decimal(10, 4)
+  margin_used                  Decimal @db.Decimal(12, 2)
+  liquidation_price            Decimal @db.Decimal(20, 8) // Price at which position would be liquidated
+  reward_risk_ratio            Decimal @db.Decimal(10, 4)
+  stop_loss_distance_percent   Decimal @db.Decimal(10, 4)
   take_profit_distance_percent Decimal @db.Decimal(10, 4)
 
   // PnL tracking
   gross_pnl      Decimal      @db.Decimal(12, 2) // PnL before fees
   total_fees     Decimal      @db.Decimal(12, 2) // Entry + exit fees
-  net_pnl        Decimal      @db.Decimal(12, 2) // PnL after fees
+  funding_rate_fees Decimal   @default(0) @db.Decimal(12, 4) // Accumulated funding rate fees
+  net_pnl        Decimal      @db.Decimal(12, 2) // PnL after all fees (trading + funding)
   roi_percentage Decimal      @db.Decimal(10, 4) // Return on investment %
 
   // Trade duration
@@ -603,6 +617,46 @@ model PaperTrade {
   @@index([exit_reason]) // Analytics on exit reasons
   @@index([created_at]) // Time-based queries
   @@map("paper_trades")
+}
+
+// Track signals that were received but not processed into orders
+// Useful for debugging and analytics on why signals were rejected
+model RejectedSignal {
+  id          String   @id @default(cuid())
+  signal_id   String // Link to signal (not foreign key - signal may not be stored)
+  account_id  String
+  strategy_id String
+
+  // Signal details (snapshot at time of rejection)
+  symbol      String
+  timeframe   String
+  side        String
+  action      String
+  pattern_type String
+  entry_price Decimal  @db.Decimal(20, 8)
+  stop_loss   Decimal  @db.Decimal(20, 8)
+  take_profit Decimal  @db.Decimal(20, 8)
+
+  // Rejection details
+  rejection_reason String @db.Text // "balance_insufficient", "symbol_not_allowed", "timeframe_filtered", etc.
+  rejection_details Json? // Additional context (e.g., calculated position size, available balance, etc.)
+
+  // Portfolio state at rejection
+  portfolio_balance Decimal? @db.Decimal(12, 2)
+  margin_used       Decimal? @db.Decimal(12, 2)
+
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy       @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id, created_at]) // Query rejections by account
+  @@index([strategy_id, created_at]) // Query rejections by strategy
+  @@index([signal_id]) // Query rejections by signal
+  @@index([rejection_reason]) // Analytics on rejection reasons
+  @@index([symbol]) // Query rejections by symbol
+  @@index([created_at]) // Time-based queries
+  @@map("rejected_signals")
 }
 
 // ============================================================================

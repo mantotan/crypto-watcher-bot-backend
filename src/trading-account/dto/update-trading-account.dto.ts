@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, Max } from 'class-validator';
 
 export class UpdateTradingAccountDto {
   @ApiPropertyOptional({
@@ -25,4 +25,40 @@ export class UpdateTradingAccountDto {
   @IsOptional()
   @IsString()
   api_secret?: string;
+
+  @ApiPropertyOptional({
+    description: 'Maker fee percentage (e.g., 0.02 for 0.02%)',
+    example: 0.02,
+    minimum: 0,
+    maximum: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  maker_fee?: number;
+
+  @ApiPropertyOptional({
+    description: 'Taker fee percentage (e.g., 0.05 for 0.05%)',
+    example: 0.05,
+    minimum: 0,
+    maximum: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taker_fee?: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum leverage allowed (e.g., 125 for 125x)',
+    example: 125,
+    minimum: 1,
+    maximum: 125,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(125)
+  max_leverage?: number;
 }

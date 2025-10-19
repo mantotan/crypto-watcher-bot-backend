@@ -24,6 +24,7 @@ import { UpdateStrategyDto } from './dto/update-strategy.dto';
 import { CopyStrategyDto } from './dto/copy-strategy.dto';
 import { ListStrategiesQueryDto } from './dto/list-strategies-query.dto';
 import { ListPublicStrategiesQueryDto } from './dto/list-public-strategies-query.dto';
+import { ListRejectedSignalsQueryDto } from './dto/list-rejected-signals-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Strategies')
@@ -302,6 +303,39 @@ export class StrategyController {
   })
   async unarchiveStrategy(@Request() req, @Param('id') id: string) {
     return this.strategyService.unarchiveStrategy(req.user.id, id);
+  }
+
+  @Get(':id/rejected-signals')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get rejected signals for a strategy',
+    description:
+      'Returns paginated list of signals that were rejected and not processed into positions/orders. ' +
+      'Useful for debugging and analytics on why signals were rejected.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Strategy ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Rejected signals retrieved successfully with summary statistics',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Strategy not found',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  async listRejectedSignals(
+    @Request() req,
+    @Param('id') id: string,
+    @Query() query: ListRejectedSignalsQueryDto,
+  ) {
+    return this.strategyService.listRejectedSignals(req.user.id, id, query);
   }
 
 }

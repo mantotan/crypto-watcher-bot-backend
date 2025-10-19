@@ -11,6 +11,7 @@ import { UpdateStrategyDto } from './dto/update-strategy.dto';
 import { CopyStrategyDto } from './dto/copy-strategy.dto';
 import { ListStrategiesQueryDto } from './dto/list-strategies-query.dto';
 import { ListPublicStrategiesQueryDto } from './dto/list-public-strategies-query.dto';
+import { ListRejectedSignalsQueryDto } from './dto/list-rejected-signals-query.dto';
 import { TradingMode } from '@prisma/client';
 
 @Injectable()
@@ -646,6 +647,120 @@ export class StrategyService {
     });
 
     return { message: 'Strategy unarchived successfully' };
+  }
+
+  /**
+   * List rejected signals for a strategy
+   */
+  async listRejectedSignals(
+    userId: string,
+    strategyId: string,
+    query: ListRejectedSignalsQueryDto,
+  ) {
+    // Verify strategy exists and belongs to user
+    const strategy = await this.prisma.strategy.findFirst({
+      where: {
+        id: strategyId,
+        account: { user_id: userId },
+        deleted_at: null,
+      },
+    });
+
+    if (!strategy) {
+      throw new NotFoundException('Strategy not found');
+    }
+
+    const {
+      symbol,
+      rejection_reason,
+      start_date,
+      end_date,
+      cursor,
+      limit = 20,
+    } = query;
+
+    // Build where clause
+    const where: any = { strategy_id: strategyId };
+
+    if (symbol) {
+      where.symbol = symbol;
+    }
+
+    if (rejection_reason) {
+      where.rejection_reason = rejection_reason;
+    }
+
+    // Date range filter with validation
+    if (start_date || end_date) {
+      where.created_at = {};
+
+      if (start_date) {
+        const startDate = new Date(start_date);
+        if (isNaN(startDate.getTime())) {
+          throw new BadRequestException(
+            'Invalid start_date format. Use ISO 8601 (e.g., 2025-01-01T00:00:00Z)',
+          );
+        }
+        where.created_at.gte = startDate;
+      }
+
+      if (end_date) {
+        const endDate = new Date(end_date);
+        if (isNaN(endDate.getTime())) {
+          throw new BadRequestException(
+            'Invalid end_date format. Use ISO 8601 (e.g., 2025-12-31T23:59:59Z)',
+          );
+        }
+        where.created_at.lte = endDate;
+      }
+    }
+
+    // Build query options
+    const queryOptions: any = {
+      where,
+      take: limit + 1,
+      orderBy: { created_at: 'desc' },
+    };
+
+    if (cursor) {
+      queryOptions.cursor = { id: cursor };
+      queryOptions.skip = 1;
+    }
+
+    const rejectedSignals = await this.prisma.rejectedSignal.findMany(queryOptions);
+
+    // Check if there are more results
+    const hasMore = rejectedSignals.length > limit;
+    const data = hasMore ? rejectedSignals.slice(0, limit) : rejectedSignals;
+
+    // Calculate summary statistics
+    const totalRejections = await this.prisma.rejectedSignal.count({ where });
+
+    // Get top rejection reasons
+    const topReasons = await this.prisma.rejectedSignal.groupBy({
+      by: ['rejection_reason'],
+      where: { strategy_id: strategyId },
+      _count: { rejection_reason: true },
+      orderBy: { _count: { rejection_reason: 'desc' } },
+      take: 5,
+    });
+
+    return {
+      data,
+      pagination: {
+        total: data.length,
+        limit,
+        nextCursor: hasMore ? data[data.length - 1].id : null,
+        hasMore,
+      },
+      summary: {
+        total_rejections: totalRejections,
+        top_rejection_reasons: topReasons.map((r) => ({
+          reason: r.rejection_reason,
+          count: r._count.rejection_reason,
+        })),
+      },
+    };
   }
 
 }

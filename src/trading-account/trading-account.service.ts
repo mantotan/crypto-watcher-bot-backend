@@ -25,6 +25,9 @@ export class TradingAccountService {
         id: true,
         name: true,
         exchange: true,
+        maker_fee: true,
+        taker_fee: true,
+        max_leverage: true,
         created_at: true,
         updated_at: true,
         encrypted_at: true,
@@ -78,11 +81,17 @@ export class TradingAccountService {
         api_key: encryptedApiKey,
         secret_key: encryptedSecretKey,
         encrypted_at: new Date(),
+        ...(dto.maker_fee !== undefined && { maker_fee: dto.maker_fee }),
+        ...(dto.taker_fee !== undefined && { taker_fee: dto.taker_fee }),
+        ...(dto.max_leverage !== undefined && { max_leverage: dto.max_leverage }),
       },
       select: {
         id: true,
         name: true,
         exchange: true,
+        maker_fee: true,
+        taker_fee: true,
+        max_leverage: true,
         created_at: true,
         updated_at: true,
         encrypted_at: true,
@@ -105,6 +114,9 @@ export class TradingAccountService {
         id: true,
         name: true,
         exchange: true,
+        maker_fee: true,
+        taker_fee: true,
+        max_leverage: true,
         created_at: true,
         updated_at: true,
         encrypted_at: true,
@@ -188,6 +200,23 @@ export class TradingAccountService {
       updateData.encrypted_at = new Date();
     }
 
+    if (dto.maker_fee !== undefined) {
+      updateData.maker_fee = dto.maker_fee;
+    }
+
+    if (dto.taker_fee !== undefined) {
+      updateData.taker_fee = dto.taker_fee;
+    }
+
+    if (dto.max_leverage !== undefined) {
+      updateData.max_leverage = dto.max_leverage;
+    }
+
+    // Validate that at least one field is being updated
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('No fields provided to update');
+    }
+
     // Update account
     const updatedAccount = await this.prisma.tradingAccount.update({
       where: { id: accountId },
@@ -196,6 +225,9 @@ export class TradingAccountService {
         id: true,
         name: true,
         exchange: true,
+        maker_fee: true,
+        taker_fee: true,
+        max_leverage: true,
         created_at: true,
         updated_at: true,
         encrypted_at: true,

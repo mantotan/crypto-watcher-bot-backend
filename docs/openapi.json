@@ -2144,6 +2144,106 @@
         ]
       }
     },
+    "/strategies/{id}/rejected-signals": {
+      "get": {
+        "description": "Returns paginated list of signals that were rejected and not processed into positions/orders. Useful for debugging and analytics on why signals were rejected.",
+        "operationId": "StrategyController_listRejectedSignals",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Strategy ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "symbol",
+            "required": false,
+            "in": "query",
+            "description": "Filter by symbol",
+            "schema": {
+              "example": "BTCUSDT",
+              "type": "string"
+            }
+          },
+          {
+            "name": "rejection_reason",
+            "required": false,
+            "in": "query",
+            "description": "Filter by rejection reason",
+            "schema": {
+              "example": "balance_insufficient",
+              "type": "string"
+            }
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "description": "Filter by start date (ISO 8601)",
+            "schema": {
+              "example": "2025-01-01T00:00:00Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "description": "Filter by end date (ISO 8601)",
+            "schema": {
+              "example": "2025-12-31T23:59:59Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor for pagination (rejected signal ID)",
+            "schema": {
+              "example": "clxy1234567890abcdefghijk",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items per page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rejected signals retrieved successfully with summary statistics"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get rejected signals for a strategy",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
     "/strategies/{strategyId}/portfolios": {
       "get": {
         "description": "Returns both REAL and PAPER portfolios for a strategy (if they exist)",
@@ -3321,6 +3421,30 @@
             "description": "Initial balance for paper trading portfolio",
             "example": 10000,
             "minimum": 0
+          },
+          "maker_fee": {
+            "type": "number",
+            "description": "Maker fee percentage (e.g., 0.02 for 0.02%)",
+            "example": 0.02,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 0.02
+          },
+          "taker_fee": {
+            "type": "number",
+            "description": "Taker fee percentage (e.g., 0.05 for 0.05%)",
+            "example": 0.05,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 0.05
+          },
+          "max_leverage": {
+            "type": "number",
+            "description": "Maximum leverage allowed (e.g., 125 for 125x)",
+            "example": 125,
+            "minimum": 1,
+            "maximum": 125,
+            "default": 125
           }
         },
         "required": [
@@ -3347,6 +3471,27 @@
             "type": "string",
             "description": "Exchange API secret",
             "example": "your_new_api_secret_here"
+          },
+          "maker_fee": {
+            "type": "number",
+            "description": "Maker fee percentage (e.g., 0.02 for 0.02%)",
+            "example": 0.02,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "taker_fee": {
+            "type": "number",
+            "description": "Taker fee percentage (e.g., 0.05 for 0.05%)",
+            "example": 0.05,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "max_leverage": {
+            "type": "number",
+            "description": "Maximum leverage allowed (e.g., 125 for 125x)",
+            "example": 125,
+            "minimum": 1,
+            "maximum": 125
           }
         }
       },
