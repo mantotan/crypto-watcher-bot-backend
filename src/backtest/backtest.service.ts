@@ -646,6 +646,7 @@ export class BacktestService {
         initial_capital: dto.config.initial_capital,
         min_risk_ratio: dto.config.min_risk_ratio,
         max_risk_ratio: dto.config.max_risk_ratio,
+        max_position_size_usd: dto.config.max_position_size_usd,
         config: dto.config as unknown as Prisma.InputJsonValue,
       },
     });

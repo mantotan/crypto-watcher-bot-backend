@@ -1963,6 +1963,11 @@ components:
           description: Trading fee percentage (e.g., 0.1 for 0.1%)
           example: 0.1
           minimum: 0
+        max_position_size_usd:
+          type: number
+          description: Maximum position size in USD
+          example: 100000
+          minimum: 1
       required:
         - strategy_type
         - risk_mode
@@ -2367,6 +2372,11 @@ components:
           type: number
           description: Initial capital for portfolio
           example: 10000
+        max_position_size_usd:
+          type: number
+          description: Maximum position size in USD
+          example: 100000
+          default: 100000
       required:
         - name
         - trading_account_id
@@ -2461,6 +2471,10 @@ components:
         is_active:
           type: boolean
           description: Is strategy active
+        max_position_size_usd:
+          type: number
+          description: Maximum position size in USD
+          example: 100000
     UpdatePortfolioDto:
       type: object
       properties:

@@ -133,4 +133,13 @@ export class UpdateStrategyDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Maximum position size in USD',
+    example: 100000,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_position_size_usd?: number;
 }

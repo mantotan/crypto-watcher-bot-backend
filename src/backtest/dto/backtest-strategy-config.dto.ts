@@ -110,4 +110,13 @@ export class BacktestStrategyConfigDto {
   @IsNumber()
   @IsOptional()
   trading_fee_percentage?: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum position size in USD',
+    example: 100000,
+    minimum: 1,
+  })
+  @IsNumber()
+  @IsOptional()
+  max_position_size_usd?: number;
 }

@@ -149,4 +149,14 @@ export class CreateStrategyDto {
   @IsNumber()
   @Min(1)
   initial_capital: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum position size in USD',
+    example: 100000,
+    default: 100000,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_position_size_usd?: number;
 }
