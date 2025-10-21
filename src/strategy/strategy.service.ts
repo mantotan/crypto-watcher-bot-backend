@@ -160,6 +160,7 @@ export class StrategyService {
         name: true,
         mode: true,
         is_live: true,
+        is_public: true,
         created_at: true,
         trade_size_type: true,
         trade_size_amount: true,
@@ -291,6 +292,7 @@ export class StrategyService {
       const { account, ...strategyData } = strategy;
       return {
         ...strategyData,
+        is_public: strategy.is_public,
         trading_account: {
           id: account.id,
           name: 'Hidden',

@@ -2423,7 +2423,7 @@
     },
     "/strategies/{strategyId}/positions": {
       "get": {
-        "description": "Returns paginated list of positions for a strategy. Queries from Position or PaperPosition table based on mode parameter.",
+        "description": "Returns paginated list of positions for a strategy. For REAL mode: queries Position table. For PAPER mode: queries PaperPosition (open) and/or PaperTrade (closed) tables based on status filter. When status is not specified in PAPER mode, returns both open positions and closed trades merged and sorted by date. Each item includes a \"status\" field (\"OPEN\" or \"CLOSED\") to distinguish between active positions and closed trades.",
         "operationId": "PositionController_getStrategyPositions",
         "parameters": [
           {
@@ -2511,7 +2511,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Positions retrieved successfully with summary"
+            "description": "Positions retrieved successfully with summary. Response includes a \"status\" field for each item indicating whether it is an open position or closed trade. Open positions have unrealized_pnl and mark_price. Closed trades have exit_datetime, exit_price, exit_reason, net_pnl, and roi_percentage."
           },
           "401": {
             "description": "Unauthorized"
@@ -2533,7 +2533,7 @@
     },
     "/positions/{id}": {
       "get": {
-        "description": "Returns detailed information about a specific position (REAL or PAPER based on mode parameter)",
+        "description": "Returns detailed information about a specific position. For REAL mode: queries Position table. For PAPER mode: checks both PaperPosition (open) and PaperTrade (closed) tables. Response includes a \"status\" field (\"OPEN\" or \"CLOSED\").",
         "operationId": "PositionController_getPositionById",
         "parameters": [
           {
@@ -2556,7 +2556,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Position retrieved successfully"
+            "description": "Position retrieved successfully. Includes \"status\" field. Open positions have unrealized_pnl and mark_price (exit fields are null). Closed trades have exit_datetime, exit_price, exit_reason, net_pnl, roi_percentage (unrealized_pnl is null)."
           },
           "401": {
             "description": "Unauthorized"
@@ -2578,7 +2578,7 @@
     },
     "/positions/{id}/chart-data": {
       "get": {
-        "description": "Fetches candle data from GraphQL service for visualizing the position on a chart. Returns candles before and after position entry time.",
+        "description": "Fetches candle data from GraphQL service for visualizing the position on a chart. Returns candles before and after position entry time. Works with both open positions and closed trades (uses entry_datetime for closed trades).",
         "operationId": "PositionController_getPositionChartData",
         "parameters": [
           {
