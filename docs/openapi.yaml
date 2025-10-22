@@ -219,6 +219,52 @@ paths:
           description: Unauthorized
       summary: Get current authenticated user profile
       tags: *ref_0
+  /auth/profile:
+    patch:
+      operationId: AuthController_updateProfile
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileDto'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Profile updated successfully
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      email:
+                        type: string
+                      name:
+                        type: string
+                      email_verified:
+                        type: boolean
+                      preferred_timezone:
+                        type: string
+                        example: America/New_York
+                      created_at:
+                        type: string
+                        format: date-time
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+      security:
+        - bearer: []
+      summary: Update user profile (name, timezone)
+      tags: *ref_0
   /auth/logout:
     post:
       operationId: AuthController_logout
@@ -1839,6 +1885,17 @@ components:
           description: New password to set for OAuth users
       required:
         - password
+    UpdateProfileDto:
+      type: object
+      properties:
+        name:
+          type: string
+          description: User full name
+          example: John Doe
+        preferred_timezone:
+          type: string
+          description: User preferred timezone (IANA timezone identifier)
+          example: America/New_York
     Setup2FADto:
       type: object
       properties:

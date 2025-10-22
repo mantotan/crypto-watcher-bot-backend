@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Delete, Param, Res } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, Request, Delete, Param, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
@@ -18,6 +18,7 @@ import { Enable2FADto } from './dto/enable-2fa.dto';
 import { Disable2FADto } from './dto/disable-2fa.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { RegenerateBackupCodesDto } from './dto/regenerate-backup-codes.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Authentication')
@@ -206,6 +207,38 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@Request() req) {
     return req.user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update user profile (name, timezone)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Profile updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Profile updated successfully' },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            email: { type: 'string' },
+            name: { type: 'string' },
+            email_verified: { type: 'boolean' },
+            preferred_timezone: { type: 'string', example: 'America/New_York' },
+            created_at: { type: 'string', format: 'date-time' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async updateProfile(@Request() req, @Body() updateProfileDto: UpdateProfileDto) {
+    const userId = req.user.id;
+    return this.authService.updateUserProfile(userId, updateProfileDto);
   }
 
   @Post('logout')

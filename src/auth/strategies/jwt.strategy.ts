@@ -36,6 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: true,
         name: true,
         created_at: true,
+        preferred_timezone: true,
         two_factor_enabled_at: true,
         password_changed_at: true,
       },
@@ -76,6 +77,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       email: user.email,
       name: user.name,
+      preferred_timezone: user.preferred_timezone,
       created_at: user.created_at,
     };
   }

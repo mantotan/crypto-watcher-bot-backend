@@ -48,6 +48,7 @@ export class AuthService {
         email: true,
         name: true,
         email_verified: true,
+        preferred_timezone: true,
         created_at: true,
       },
     });
@@ -64,6 +65,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         email_verified: user.email_verified,
+        preferred_timezone: user.preferred_timezone,
         created_at: user.created_at,
       },
     };
@@ -183,6 +185,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         email_verified: user.email_verified,
+        preferred_timezone: user.preferred_timezone,
         created_at: user.created_at,
       },
     };
@@ -283,6 +286,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         email_verified: true,
+        preferred_timezone: user.preferred_timezone,
       },
     };
   }
@@ -1134,6 +1138,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         email_verified: user.email_verified,
+        preferred_timezone: user.preferred_timezone,
         created_at: user.created_at,
       },
       usedBackupCode,
@@ -1277,6 +1282,47 @@ export class AuthService {
 
     return {
       message: 'Password set successfully. You can now log in with email and password.',
+    };
+  }
+
+  /**
+   * Update user profile (name and/or timezone)
+   */
+  async updateUserProfile(userId: string, updateData: { name?: string; preferred_timezone?: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Build update object (only include fields that are provided)
+    const dataToUpdate: any = {};
+    if (updateData.name !== undefined) {
+      dataToUpdate.name = updateData.name;
+    }
+    if (updateData.preferred_timezone !== undefined) {
+      dataToUpdate.preferred_timezone = updateData.preferred_timezone;
+    }
+
+    // Update user profile
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: dataToUpdate,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        email_verified: true,
+        preferred_timezone: true,
+        created_at: true,
+      },
+    });
+
+    return {
+      message: 'Profile updated successfully',
+      user: updatedUser,
     };
   }
 }

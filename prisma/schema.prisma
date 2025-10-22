@@ -123,6 +123,9 @@ model User {
   two_factor_secret     String?   @db.Text // Encrypted TOTP secret (Base32) - use same encryption as trading accounts
   two_factor_enabled_at DateTime? @db.Timestamptz // When 2FA was enabled (for JWT invalidation)
 
+  // 🌍 User Preferences
+  preferred_timezone String @default("Asia/Singapore") @db.VarChar(50) // IANA timezone identifier
+
   created_at DateTime @default(now()) @db.Timestamptz
   updated_at DateTime @updatedAt @db.Timestamptz
 
