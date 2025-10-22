@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GraphQLService } from '../graphql/graphql.service';
@@ -11,6 +12,8 @@ import { TradingMode } from '@prisma/client';
 
 @Injectable()
 export class PositionService {
+  private readonly logger = new Logger(PositionService.name);
+
   constructor(
     private prisma: PrismaService,
     private graphqlService: GraphQLService,
@@ -370,26 +373,35 @@ export class PositionService {
     // Get timeframe from position (fallback to '4h' for legacy data)
     const timeframe = (position as any).timeframe || '4h';
 
-    try {
-      const candleData = await this.graphqlService.getCandlesAroundTime(
-        position.symbol,
-        timeframe,
-        entryDatetime,
-        candles_before,
-        candles_after,
-      );
+    // GraphQL service now handles errors gracefully and returns partial/empty data
+    const candleData = await this.graphqlService.getCandlesAroundTime(
+      position.symbol,
+      timeframe,
+      entryDatetime,
+      candles_before,
+      candles_after,
+    );
 
-      return {
-        position,
-        candles: {
-          before: candleData.before || [],
-          after: candleData.after || [],
-          reference_time: entryDatetime.toISOString(),
-          total_candles: (candleData.before?.length || 0) + (candleData.after?.length || 0),
-        },
-      };
-    } catch (error) {
-      throw new BadRequestException(`Failed to fetch candle data: ${error.message}`);
+    const totalCandles = (candleData.before?.length || 0) + (candleData.after?.length || 0);
+
+    // Log warning if no candles available
+    if (totalCandles === 0) {
+      this.logger.warn(
+        `No candles available for position ${positionId} (${position.symbol} ${timeframe} at ${entryDatetime.toISOString()})`,
+      );
     }
+
+    return {
+      position,
+      candles: {
+        before: candleData.before || [],
+        after: candleData.after || [],
+        reference_time: entryDatetime.toISOString(),
+        total_candles: totalCandles,
+        ...(totalCandles === 0 && {
+          error: 'No candle data available from chart service for this time range',
+        }),
+      },
+    };
   }
 }

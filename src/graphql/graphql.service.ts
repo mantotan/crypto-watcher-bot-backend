@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 
 export interface CandleData {
   symbol: string;
@@ -40,6 +40,7 @@ export class GraphQLService {
 
   /**
    * Fetch candles from GraphQL service within a date range
+   * Returns partial results if full range is not available
    */
   async getCandles(
     symbol: string,
@@ -75,35 +76,104 @@ export class GraphQLService {
       limit,
     };
 
-    try {
-      const response = await this.client.post<GraphQLResponse<{ getCandles: CandleData[] }>>(
-        '',
-        {
-          query,
-          variables,
-        },
-      );
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-      if (response.data.errors) {
-        this.logger.error(
-          `GraphQL errors: ${JSON.stringify(response.data.errors)}`,
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.debug(
+          `Fetching candles for ${symbol} ${timeframe} (${startTime.toISOString()} to ${endTime.toISOString()}) - Attempt ${attempt}/${maxRetries}`,
         );
-        throw new Error(`GraphQL query failed: ${response.data.errors[0].message}`);
+
+        const response = await this.client.post<GraphQLResponse<{ getCandles: CandleData[] }>>(
+          '',
+          {
+            query,
+            variables,
+          },
+        );
+
+        if (response.data.errors) {
+          const errorMsg = response.data.errors[0].message;
+          this.logger.warn(
+            `GraphQL query returned errors for ${symbol} ${timeframe}: ${errorMsg}`,
+          );
+
+          // Return empty array for GraphQL errors (e.g., no data available)
+          // These are not retryable - the data simply doesn't exist
+          return response.data.data?.getCandles || [];
+        }
+
+        const candles = response.data.data?.getCandles || [];
+
+        if (attempt > 1) {
+          this.logger.log(
+            `Successfully fetched ${candles.length} candles for ${symbol} ${timeframe} on attempt ${attempt}`,
+          );
+        } else {
+          this.logger.debug(
+            `Fetched ${candles.length} candles for ${symbol} ${timeframe}`,
+          );
+        }
+
+        return candles;
+      } catch (error) {
+        lastError = error;
+        const isNetworkError = this.isNetworkError(error);
+        const isLastAttempt = attempt === maxRetries;
+
+        if (isNetworkError && !isLastAttempt) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff: 1s, 2s, 4s (max 10s)
+          this.logger.warn(
+            `Network error fetching candles for ${symbol} ${timeframe} (attempt ${attempt}/${maxRetries}): ${error?.message || String(error)}. Retrying in ${delay}ms...`,
+          );
+          await this.sleep(delay);
+          continue;
+        }
+
+        // Log error but return empty array instead of throwing
+        this.logger.error(
+          `Failed to fetch candles for ${symbol} ${timeframe} after ${attempt} attempt(s): ${error?.message || String(error)}`,
+        );
+
+        // Return empty array instead of throwing - graceful degradation
+        return [];
       }
-
-      const candles = response.data.data?.getCandles || [];
-      this.logger.log(
-        `Fetched ${candles.length} candles for ${symbol} ${timeframe}`,
-      );
-
-      return candles;
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch candles: ${error.message}`,
-        error.stack,
-      );
-      throw error;
     }
+
+    // If we get here, all retries failed
+    this.logger.error(
+      `All ${maxRetries} attempts failed to fetch candles for ${symbol} ${timeframe}: ${lastError?.message}`,
+    );
+    return [];
+  }
+
+  /**
+   * Check if an error is a network-related error that should be retried
+   */
+  private isNetworkError(error: any): boolean {
+    if (axios.isAxiosError(error)) {
+      // Network errors (ECONNREFUSED, ENOTFOUND, ETIMEDOUT, etc.)
+      if (error.code && ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN'].includes(error.code)) {
+        return true;
+      }
+      // Socket hang up
+      if (error.message?.includes('socket hang up')) {
+        return true;
+      }
+      // Timeout errors
+      if (error.code === 'ECONNABORTED') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Sleep helper for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -131,6 +201,7 @@ export class GraphQLService {
   /**
    * Fetch candles around a specific timestamp
    * Gets N candles before and N candles after the reference time
+   * Returns partial results if full range is not available
    */
   async getCandlesAroundTime(
     symbol: string,
@@ -148,6 +219,10 @@ export class GraphQLService {
 
     const startTime = new Date(referenceTime.getTime() - offsetBefore);
     const endTime = new Date(referenceTime.getTime() + offsetAfter);
+
+    this.logger.debug(
+      `Requesting ${candlesBefore} candles before and ${candlesAfter} candles after ${referenceTime.toISOString()} for ${symbol} ${timeframe}`,
+    );
 
     const allCandles = await this.getCandles(
       symbol,
@@ -178,9 +253,23 @@ export class GraphQLService {
     const limitedBefore = before.slice(-candlesBefore);
     const limitedAfter = after.slice(0, candlesAfter);
 
-    this.logger.log(
-      `Fetched ${limitedBefore.length} candles before and ${limitedAfter.length} candles after ${referenceTime.toISOString()}`,
-    );
+    // Log result with details about partial data
+    const beforeMsg = limitedBefore.length < candlesBefore
+      ? `${limitedBefore.length}/${candlesBefore} (partial)`
+      : `${limitedBefore.length}/${candlesBefore}`;
+    const afterMsg = limitedAfter.length < candlesAfter
+      ? `${limitedAfter.length}/${candlesAfter} (partial)`
+      : `${limitedAfter.length}/${candlesAfter}`;
+
+    if (limitedBefore.length < candlesBefore || limitedAfter.length < candlesAfter) {
+      this.logger.warn(
+        `Partial candles data for ${symbol} ${timeframe}: ${beforeMsg} before, ${afterMsg} after reference time ${referenceTime.toISOString()}`,
+      );
+    } else {
+      this.logger.debug(
+        `Fetched ${beforeMsg} candles before and ${afterMsg} after ${referenceTime.toISOString()}`,
+      );
+    }
 
     return {
       before: limitedBefore,

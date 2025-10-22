@@ -542,42 +542,36 @@ export class BacktestService {
     }
 
     // Fetch candles around the reference time
-    try {
-      const candleData = await this.graphqlService.getCandlesAroundTime(
-        trade.symbol,
-        trade.timeframe,
-        referenceTime,
-        50, // 50 candles before
-        50, // 50 candles after
-      );
+    // GraphQL service now handles errors gracefully and returns partial/empty data
+    const candleData = await this.graphqlService.getCandlesAroundTime(
+      trade.symbol,
+      trade.timeframe,
+      referenceTime,
+      50, // 50 candles before
+      50, // 50 candles after
+    );
 
-      return {
-        trade,
-        candles: {
-          before: candleData.before,
-          after: candleData.after,
-          reference_time: candleData.reference,
-          total_candles: candleData.before.length + candleData.after.length,
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch candles for trade ${tradeId}: ${error.message}`,
-        error.stack,
-      );
+    const totalCandles = candleData.before.length + candleData.after.length;
 
-      // Return trade data without candles if GraphQL service fails
-      return {
-        trade,
-        candles: {
-          before: [],
-          after: [],
-          reference_time: referenceTime,
-          total_candles: 0,
-          error: 'Failed to fetch candle data from chart service',
-        },
-      };
+    // Log if no candles were retrieved
+    if (totalCandles === 0) {
+      this.logger.warn(
+        `No candles available for trade ${tradeId} (${trade.symbol} ${trade.timeframe} at ${referenceTime.toISOString()})`,
+      );
     }
+
+    return {
+      trade,
+      candles: {
+        before: candleData.before,
+        after: candleData.after,
+        reference_time: candleData.reference,
+        total_candles: totalCandles,
+        ...(totalCandles === 0 && {
+          error: 'No candle data available from chart service for this time range',
+        }),
+      },
+    };
   }
 
   /**
