@@ -6,7 +6,17 @@ This directory contains comprehensive documentation for the Crypto Watcher Tradi
 
 ## 📚 Documentation Index
 
-### Portfolio Performance Feature (NEW - 2025-10-23)
+### Backtest Progress Tracking Feature (NEW - 2025-10-23) ✅ PRODUCTION READY
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| **[Production Ready Summary](./PRODUCTION_READY_SUMMARY.md)** | ✅ **START HERE** - Final status, all fixes applied, deployment checklist | Everyone |
+| **[Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)** | Complete WebSocket + HTTP integration guide with React examples | Frontend developers |
+| **[Progress Tracking Summary](./PROGRESS_TRACKING_SUMMARY.md)** | Quick reference with data structures and common issues | Frontend/Backend developers |
+| **[Security Audit Report](./SECURITY_AUDIT_REPORT.md)** | Comprehensive security audit with all issues found and fixed | Backend developers, Security team |
+| **[Final Audit Report](./FINAL_AUDIT_REPORT.md)** | Long-term stability audit with scalability analysis | Backend developers, DevOps |
+
+### Portfolio Performance Feature (2025-10-23)
 
 | Document | Description | Audience |
 |----------|-------------|----------|
@@ -14,22 +24,34 @@ This directory contains comprehensive documentation for the Crypto Watcher Tradi
 | **[Quick Reference](./PORTFOLIO_PERFORMANCE_QUICK_REFERENCE.md)** | TL;DR version with code snippets and common patterns | Developers who want quick answers |
 | **[Changelog](./CHANGELOG_PORTFOLIO_PERFORMANCE.md)** | Implementation details, bug fixes, and technical changes | Backend developers, DevOps |
 
+### API Specification
+
+| Document | Description | Use Case |
+|----------|-------------|----------|
+| **[openapi.json](./openapi.json)** | OpenAPI 3.0 specification (JSON) | API clients, code generation |
+| **[openapi.yaml](./openapi.yaml)** | OpenAPI 3.0 specification (YAML) | Human-readable, Postman import |
+
 ---
 
 ## 🚀 Quick Links
 
 ### For Frontend Developers
 
-**New to the API?** Start here:
+#### Implementing Progress Tracking?
+1. Read the [Progress Tracking Summary](./PROGRESS_TRACKING_SUMMARY.md) (5 min read)
+2. Install `socket.io-client`
+3. Copy React hooks and components from [Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)
+4. Test in browser console
+
+#### Working with Portfolio Performance?
 1. Read the [Quick Reference](./PORTFOLIO_PERFORMANCE_QUICK_REFERENCE.md) (5 min read)
 2. Copy the TypeScript types and API client code
 3. See integration examples for your framework
 
-**Need details?** Check the [Full API Documentation](./PORTFOLIO_PERFORMANCE_API.md):
-- Complete parameter descriptions
-- All response fields explained
-- Error handling guide
-- Performance optimization tips
+**Need full details?**
+- Progress Tracking: [Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)
+- Portfolio Performance: [Full API Documentation](./PORTFOLIO_PERFORMANCE_API.md)
+- All Endpoints: [Interactive Swagger UI](http://localhost:3733/api/docs)
 
 ### For Backend Developers
 
@@ -41,27 +63,54 @@ This directory contains comprehensive documentation for the Crypto Watcher Tradi
 
 ---
 
-## 🎯 Feature Overview: Portfolio Performance
+## 🎯 Feature Overviews
 
-### What It Does
+### Backtest Progress Tracking (Real-time)
 
-Provides time-series performance data for trading strategy portfolios by querying hourly snapshots from the database and aggregating them based on user-specified timeframes.
+**What It Does**: Provides real-time progress updates (0% → 100%) for backtest tasks via WebSocket or HTTP polling.
 
-### Key Endpoints
+**Key Endpoints**:
+```
+WebSocket: ws://localhost:3733/backtest-progress
+HTTP: GET /backtest/tasks/:taskId/progress
+HTTP: GET /backtest/progress/all
+```
 
+**Use Cases**:
+1. **Real-time Progress Bars** - Show live backtest progress
+2. **Status Monitoring** - Track multiple backtests simultaneously
+3. **Dashboard Views** - Display all active backtests
+4. **ETA Display** - Show estimated completion time
+
+**Quick Example**:
+```typescript
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:3733/backtest-progress');
+socket.emit('subscribe', taskId);
+socket.on('progress', (data) => {
+  console.log(`${data.progress_percentage}% - ${data.current_step}`);
+});
+```
+
+---
+
+### Portfolio Performance (Time-series)
+
+**What It Does**: Provides time-series performance data for trading strategy portfolios by querying hourly snapshots from the database and aggregating them based on user-specified timeframes.
+
+**Key Endpoints**:
 ```
 GET /portfolios/:id/performance?timeframe=1W&granularity=DAILY
 ```
 
-### Use Cases
-
+**Use Cases**:
 1. **Performance Charts** - Display equity curve over time
 2. **Summary Statistics** - Show ROI, total return, win rate
 3. **Historical Analysis** - Compare performance across different periods
 4. **Portfolio Comparison** - Track PAPER vs REAL portfolios
 
-### Quick Example
-
+**Quick Example**:
 ```typescript
 // Fetch last week's daily performance
 const response = await fetch(
@@ -202,10 +251,20 @@ All responses follow this structure:
 ## 📝 Changelog
 
 ### 2025-10-23
-- ✅ Added Portfolio Performance API documentation
-- ✅ Created quick reference guide
-- ✅ Added implementation changelog
-- ✅ Created this documentation index
+- ✅ **Backtest Progress Tracking** - Added real-time WebSocket + HTTP polling
+  - Created comprehensive frontend integration guide
+  - Added progress tracking quick reference
+  - Included React hooks and components
+  - Completed comprehensive security audit (2 rounds)
+  - Fixed critical authentication vulnerability
+  - Implemented connection-level JWT authentication
+  - Added ownership caching for performance
+  - Documented all security improvements
+- ✅ **Portfolio Performance API** - Time-series performance data
+  - Added complete API documentation
+  - Created quick reference guide
+  - Added implementation changelog
+- ✅ **Documentation Index** - Created and organized all documentation
 
 ---
 

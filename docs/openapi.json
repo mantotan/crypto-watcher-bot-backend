@@ -1280,6 +1280,173 @@
         ]
       }
     },
+    "/backtest/tasks/{taskId}/progress": {
+      "get": {
+        "description": "Returns the current progress of a backtest task. This is a polling fallback for clients that cannot use WebSocket. For real-time updates, use the WebSocket gateway instead.",
+        "operationId": "BacktestController_getTaskProgress",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "description": "Backtest task ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Progress retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "running",
+                            "completed",
+                            "failed"
+                          ]
+                        },
+                        "progress_percentage": {
+                          "type": "number",
+                          "example": 45.5
+                        },
+                        "current_step": {
+                          "type": "string",
+                          "example": "detecting_patterns"
+                        },
+                        "timestamp": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "properties": {
+                            "current_symbol": {
+                              "type": "string",
+                              "example": "BTCUSDT"
+                            },
+                            "current_timeframe": {
+                              "type": "string",
+                              "example": "4h"
+                            },
+                            "total_patterns_found": {
+                              "type": "number",
+                              "example": 87
+                            },
+                            "estimated_completion": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Task not found or no progress available"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get backtest task progress (HTTP polling fallback)",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
+    "/backtest/progress/all": {
+      "get": {
+        "description": "Returns progress for all currently active backtest tasks. Useful for dashboard views. For real-time updates, use the WebSocket gateway instead.",
+        "operationId": "BacktestController_getAllProgress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All active tasks progress retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "task_id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "progress_percentage": {
+                            "type": "number"
+                          },
+                          "current_step": {
+                            "type": "string"
+                          },
+                          "timestamp": {
+                            "type": "string"
+                          },
+                          "metadata": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    },
+                    "count": {
+                      "type": "number",
+                      "example": 3
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get all active backtest tasks progress (dashboard)",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
     "/backtest/strategies": {
       "post": {
         "description": "Creates a new backtest strategy template that can be reused for multiple backtest tasks.",

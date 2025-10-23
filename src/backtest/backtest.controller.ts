@@ -9,6 +9,9 @@ import {
   Query,
   UseGuards,
   Request,
+  NotFoundException,
+  Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,13 +29,19 @@ import { ListStrategiesQueryDto } from './dto/list-strategies-query.dto';
 import { BacktestTradesQueryDto } from './dto/backtest-trades-query.dto';
 import { BacktestTradesResponseDto } from './dto/backtest-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RedisService } from '../redis/redis.service';
 
 @ApiTags('Backtest')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('backtest')
 export class BacktestController {
-  constructor(private backtestService: BacktestService) {}
+  private readonly logger = new Logger(BacktestController.name);
+
+  constructor(
+    private backtestService: BacktestService,
+    private redisService: RedisService,
+  ) {}
 
   @Post('tasks')
   @ApiOperation({
@@ -250,6 +259,141 @@ export class BacktestController {
   })
   async getTradeDetails(@Request() req, @Param('tradeId') tradeId: string) {
     return this.backtestService.getTradeDetails(req.user.id, tradeId);
+  }
+
+  // ============================================================================
+  // PROGRESS TRACKING ENDPOINTS (HTTP Polling Fallback)
+  // ============================================================================
+
+  @Get('tasks/:taskId/progress')
+  @ApiOperation({
+    summary: 'Get backtest task progress (HTTP polling fallback)',
+    description:
+      'Returns the current progress of a backtest task. This is a polling fallback for clients ' +
+      'that cannot use WebSocket. For real-time updates, use the WebSocket gateway instead.',
+  })
+  @ApiParam({
+    name: 'taskId',
+    description: 'Backtest task ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Progress retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        data: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string' },
+            status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed'] },
+            progress_percentage: { type: 'number', example: 45.5 },
+            current_step: { type: 'string', example: 'detecting_patterns' },
+            timestamp: { type: 'string', format: 'date-time' },
+            metadata: {
+              type: 'object',
+              properties: {
+                current_symbol: { type: 'string', example: 'BTCUSDT' },
+                current_timeframe: { type: 'string', example: '4h' },
+                total_patterns_found: { type: 'number', example: 87 },
+                estimated_completion: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Task not found or no progress available',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  async getTaskProgress(@Param('taskId') taskId: string) {
+    // Validate taskId format (basic security check)
+    if (!taskId || typeof taskId !== 'string' || taskId.length > 100) {
+      throw new NotFoundException('Invalid task ID format');
+    }
+
+    try {
+      const progress = await this.redisService.getTaskProgress(taskId);
+
+      if (!progress) {
+        throw new NotFoundException(`Progress for task ${taskId} not found or completed`);
+      }
+
+      return {
+        success: true,
+        data: progress,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error fetching progress for task ${taskId}:`, error);
+      throw new NotFoundException('Failed to fetch progress');
+    }
+  }
+
+  @Get('progress/all')
+  @ApiOperation({
+    summary: 'Get all active backtest tasks progress (dashboard)',
+    description:
+      'Returns progress for all currently active backtest tasks. Useful for dashboard views. ' +
+      'For real-time updates, use the WebSocket gateway instead.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All active tasks progress retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        data: {
+          type: 'object',
+          additionalProperties: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string' },
+              status: { type: 'string' },
+              progress_percentage: { type: 'number' },
+              current_step: { type: 'string' },
+              timestamp: { type: 'string' },
+              metadata: { type: 'object' },
+            },
+          },
+        },
+        count: { type: 'number', example: 3 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  async getAllProgress() {
+    try {
+      const allProgress = await this.redisService.getAllTasksProgress();
+
+      return {
+        success: true,
+        data: allProgress,
+        count: Object.keys(allProgress).length,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching all progress:', error);
+      // Return empty result instead of failing
+      return {
+        success: true,
+        data: {},
+        count: 0,
+        error: 'Failed to fetch progress data',
+      };
+    }
   }
 
   // ============================================================================

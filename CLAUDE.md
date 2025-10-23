@@ -23,9 +23,16 @@ Claude Code guidance for this NestJS-based crypto trading bot API backend. Handl
 
 **Backtest System** (`src/backtest/`)
 - Redis queue → Python worker → PostgreSQL results, supports multi-symbol/timeframe runs
+- **Progress Tracking:** Real-time WebSocket updates + HTTP polling fallback
+  - **Authentication:** JWT required (WebSocket via `auth.token`, HTTP via Bearer token)
+  - **Authorization:** Task ownership verified (users only see their own tasks)
+  - WebSocket Gateway: `BacktestProgressGateway` subscribes to Redis Pub/Sub (`backtest:progress:all`)
+  - HTTP endpoints: `GET /backtest/tasks/:taskId/progress`, `GET /backtest/progress/all`
+  - Progress data: task_id, status, progress_percentage (0-100), current_step, metadata
+  - Frontend connects via Socket.IO namespace `/backtest-progress` with JWT token
 
 **Data Services**
-- PrismaService: PostgreSQL ORM | RedisService: Queue mgmt | GraphQLService: Chart data | EmailService: Lark/Feishu SMTP
+- PrismaService: PostgreSQL ORM | RedisService: Queue mgmt + Pub/Sub (2 clients) | GraphQLService: Chart data | EmailService: Lark/Feishu SMTP
 
 **Database Schema**
 - Encryption: AES-256-GCM for API keys & 2FA secrets | Soft deletes: `deleted_at` | Timestamps: timezone-aware
@@ -94,9 +101,45 @@ See `.env.example` for all variables.
 
 ## Backtest Flow
 
-POST `/backtest` → Validate → Save to DB → Push to Redis `backtest:queue` → Python worker processes → Write results → Update status (QUEUED → RUNNING → COMPLETED/FAILED) → Poll GET `/backtest/:id` for results
+POST `/backtest/tasks` → Validate → Save to DB → Push to Redis `backtest:queue` → Python worker processes → Write results → Update status (QUEUED → RUNNING → COMPLETED/FAILED) → Poll GET `/backtest/tasks/:id` for results
 
 **Results:** `BacktestResult` (summary) + `BacktestTrade[]` (JSONB pattern data) | Query by result_id with symbol/timeframe filters
+
+## Progress Tracking
+
+**Real-time WebSocket (Recommended):**
+```typescript
+// Frontend: Connect to WebSocket
+const socket = io('http://localhost:3733/backtest-progress', { transports: ['websocket'] });
+
+// Subscribe to task
+socket.emit('subscribe', 'task-abc-123');
+
+// Receive updates
+socket.on('progress', (data) => {
+  console.log(`${data.progress_percentage}% - ${data.current_step}`);
+  // { task_id, status, progress_percentage, current_step, timestamp, metadata }
+});
+
+// Global dashboard (all tasks)
+socket.on('all_tasks', (tasks) => console.log(tasks)); // On connect
+socket.on('global_progress', (data) => console.log(data)); // Real-time
+```
+
+**HTTP Polling (Fallback):**
+```bash
+# Get progress for specific task
+GET /backtest/tasks/{taskId}/progress
+
+# Get all active tasks (dashboard)
+GET /backtest/progress/all
+```
+
+**Backend Architecture:**
+- Python worker publishes to Redis Pub/Sub: `PUBLISH backtest:progress:all {json}`
+- Python worker caches to Redis hash: `HSET backtest:progress:latest {task_id} {json}`
+- NestJS `BacktestProgressGateway` subscribes to pub/sub, forwards to Socket.IO clients
+- RedisService uses 2 clients: main (commands) + subscriber (pub/sub, dedicated connection required)
 
 ## Security
 
@@ -113,3 +156,13 @@ Multi-stage builds: `docker/Dockerfile.production`
 
 `npx prisma generate` (client) | `npx prisma db pull` (verify DB) | Redis/GraphQL errors in console | `pnpm run start:debug` (debugger)
 Swagger UI: http://localhost:3733/api/docs
+
+## Documentation
+
+**For Frontend Developers:**
+- `docs/FRONTEND_INTEGRATION_GUIDE.md` - Complete guide for integrating progress tracking (WebSocket + HTTP)
+- `docs/openapi.json` / `docs/openapi.yaml` - OpenAPI specification
+
+**For Backend Developers:**
+- `CLAUDE.md` (this file) - Development guide and code patterns
+- Inline code comments and JSDoc
