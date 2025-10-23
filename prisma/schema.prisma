@@ -261,13 +261,14 @@ model TradingAccount {
 
   user             User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   strategies       Strategy[]
-  orders           Order[]
-  positions        Position[]
-  order_logs       OrderLog[]
-  portfolios       Portfolio[]
-  paper_positions  PaperPosition[]
-  paper_trades     PaperTrade[]
-  rejected_signals RejectedSignal[]
+  orders              Order[]
+  positions           Position[]
+  order_logs          OrderLog[]
+  portfolios          Portfolio[]
+  paper_positions     PaperPosition[]
+  paper_trades        PaperTrade[]
+  rejected_signals    RejectedSignal[]
+  portfolio_snapshots PortfolioSnapshot[]
 
   @@unique([user_id, name])
   @@index([user_id])
@@ -305,13 +306,14 @@ model Strategy {
   archived_at DateTime? @db.Timestamptz
   deleted_at  DateTime? @db.Timestamptz
 
-  account          TradingAccount   @relation(fields: [account_id], references: [id], onDelete: Cascade)
-  orders           Order[]
-  positions        Position[]
-  portfolios       Portfolio[]
-  paper_positions  PaperPosition[]
-  paper_trades     PaperTrade[]
-  rejected_signals RejectedSignal[]
+  account             TradingAccount      @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  orders              Order[]
+  positions           Position[]
+  portfolios          Portfolio[]
+  paper_positions     PaperPosition[]
+  paper_trades        PaperTrade[]
+  rejected_signals    RejectedSignal[]
+  portfolio_snapshots PortfolioSnapshot[]
 
   // PostgreSQL-specific: Allows one active strategy per name (deleted_at=NULL)
   // and multiple deleted strategies with same name (deleted_at is unique timestamp)
@@ -488,14 +490,64 @@ model Portfolio {
   created_at DateTime @default(now()) @db.Timestamptz
   updated_at DateTime @updatedAt @db.Timestamptz
 
-  account  TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
-  strategy Strategy       @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+  account  TradingAccount      @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  strategy Strategy            @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+  snapshots PortfolioSnapshot[]
 
   @@unique([strategy_id, type])
   @@index([account_id])
   @@index([type])
   @@index([strategy_id])
   @@map("portfolios")
+}
+
+// Hourly portfolio snapshots for time-series charts
+model PortfolioSnapshot {
+  id           String   @id @default(cuid())
+  portfolio_id String
+  strategy_id  String // Denormalized for query performance
+  account_id   String // Denormalized for query performance
+
+  // Snapshot timestamp (hourly intervals)
+  snapshot_at DateTime @db.Timestamptz
+
+  // Balance tracking
+  balance           Decimal @db.Decimal(12, 2)
+  available_balance Decimal @db.Decimal(12, 2)
+  margin_used       Decimal @db.Decimal(12, 2)
+
+  // P&L tracking (calculated at snapshot time)
+  unrealized_pnl  Decimal @db.Decimal(12, 2)
+  realized_pnl    Decimal @db.Decimal(12, 2)
+  total_fees_paid Decimal @db.Decimal(12, 2)
+
+  // Performance metrics (snapshot of current values)
+  total_trades   Int
+  winning_trades Int
+  losing_trades  Int
+  win_rate       Decimal  @db.Decimal(6, 2)
+  profit_factor  Decimal? @db.Decimal(10, 4)
+  max_drawdown   Decimal  @db.Decimal(10, 4)
+  sharpe_ratio   Decimal? @db.Decimal(10, 4)
+
+  // Position summary
+  open_positions_count Int
+  positions_skipped    Int     @default(0) // Positions excluded due to errors (Redis unavailable, etc.)
+  total_position_value Decimal @db.Decimal(12, 2) // Sum of all position values
+
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  // Relationships
+  portfolio Portfolio      @relation(fields: [portfolio_id], references: [id], onDelete: Cascade)
+  strategy  Strategy       @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+  account   TradingAccount @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  // Unique constraint: one snapshot per portfolio per hour
+  @@unique([portfolio_id, snapshot_at])
+  @@index([strategy_id, snapshot_at]) // Strategy performance over time
+  @@index([account_id, snapshot_at]) // Account performance over time
+  @@index([snapshot_at]) // Time-based queries
+  @@map("portfolio_snapshots")
 }
 
 model PaperPosition {

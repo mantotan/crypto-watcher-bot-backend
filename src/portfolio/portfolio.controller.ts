@@ -81,8 +81,10 @@ export class PortfolioController {
   @ApiOperation({
     summary: 'Get portfolio performance over time',
     description:
-      'Returns time-series performance data for a portfolio. ' +
-      'NOTE: Historical snapshots not yet implemented - returns initial and current values only.',
+      'Returns time-series performance data for a portfolio based on hourly snapshots. ' +
+      'Use timeframe parameter to control date range (1D, 1W, 1M, 3M, 1Y, ALL). ' +
+      'Use granularity parameter to control data aggregation (HOURLY, 12H, DAILY, WEEKLY). ' +
+      'Falls back to initial and current values if no snapshots exist.',
   })
   @ApiParam({
     name: 'id',
@@ -90,7 +92,7 @@ export class PortfolioController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Portfolio performance retrieved successfully',
+    description: 'Portfolio performance retrieved successfully with time-series data and summary statistics',
   })
   @ApiResponse({
     status: 404,

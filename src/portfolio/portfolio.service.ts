@@ -5,8 +5,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdatePortfolioDto } from './dto/update-portfolio.dto';
-import { PortfolioPerformanceQueryDto, PerformanceTimeframe } from './dto/portfolio-performance-query.dto';
-import { TradingMode } from '@prisma/client';
+import {
+  PortfolioPerformanceQueryDto,
+  PerformanceTimeframe,
+  PerformanceGranularity
+} from './dto/portfolio-performance-query.dto';
+import { TradingMode, Prisma } from '@prisma/client';
 
 @Injectable()
 export class PortfolioService {
@@ -129,31 +133,167 @@ export class PortfolioService {
         break;
     }
 
-    // TODO: Implement historical portfolio snapshots
-    // For now, return current snapshot only
-    // In production, you would query a PortfolioSnapshot table for historical data
+    // Query portfolio snapshots from database
+    const snapshots = await this.prisma.portfolioSnapshot.findMany({
+      where: {
+        portfolio_id: portfolioId,
+        snapshot_at: {
+          gte: startDate,
+          lte: now,
+        },
+      },
+      orderBy: {
+        snapshot_at: 'asc',
+      },
+    });
 
-    const equity = Number(portfolio.balance) + Number(portfolio.unrealized_pnl);
+    // If no snapshots found, return initial and current values as fallback
+    if (snapshots.length === 0) {
+      const equity = Number(portfolio.balance) + Number(portfolio.unrealized_pnl);
+      const initialBalance = Number(portfolio.initial_balance);
+      const endBalance = Number(portfolio.balance);
+      const totalReturn = Number(portfolio.realized_pnl) + Number(portfolio.unrealized_pnl);
+
+      return {
+        data: [
+          {
+            timestamp: portfolio.created_at.toISOString(),
+            balance: initialBalance,
+            equity: initialBalance,
+            available_balance: initialBalance,
+            margin_used: 0,
+            unrealized_pnl: 0,
+            realized_pnl: 0,
+            total_fees_paid: 0,
+            total_trades: 0,
+            win_rate: 0,
+            open_positions_count: 0,
+            positions_skipped: 0,
+          },
+          {
+            timestamp: now.toISOString(),
+            balance: endBalance,
+            equity,
+            available_balance: Number(portfolio.available_balance),
+            margin_used: Number(portfolio.margin_used),
+            unrealized_pnl: Number(portfolio.unrealized_pnl),
+            realized_pnl: Number(portfolio.realized_pnl),
+            total_fees_paid: Number(portfolio.total_fees_paid),
+            total_trades: portfolio.total_trades,
+            win_rate: Number(portfolio.win_rate),
+            open_positions_count: 0, // Not available in Portfolio table
+            positions_skipped: 0,    // Not available in Portfolio table
+          },
+        ],
+        summary: {
+          start_balance: initialBalance,
+          end_balance: endBalance,
+          total_return: totalReturn,
+          return_percentage: initialBalance > 0 ? ((endBalance - initialBalance) / initialBalance) * 100 : 0,
+        },
+      };
+    }
+
+    // Aggregate snapshots based on granularity
+    const aggregatedData = this.aggregateSnapshots(snapshots, query.granularity);
+
+    // Calculate summary statistics
+    const firstSnapshot = aggregatedData[0];
+    const lastSnapshot = aggregatedData[aggregatedData.length - 1];
+    const startBalance = Number(firstSnapshot.balance);
+    const endBalance = Number(lastSnapshot.balance);
+    const totalReturn = Number(lastSnapshot.realized_pnl) + Number(lastSnapshot.unrealized_pnl);
 
     return {
-      data: [
-        {
-          timestamp: portfolio.created_at.toISOString(),
-          balance: Number(portfolio.initial_balance),
-          equity: Number(portfolio.initial_balance),
-          unrealized_pnl: 0,
-          realized_pnl: 0,
-        },
-        {
-          timestamp: now.toISOString(),
-          balance: Number(portfolio.balance),
-          equity,
-          unrealized_pnl: Number(portfolio.unrealized_pnl),
-          realized_pnl: Number(portfolio.realized_pnl),
-        },
-      ],
-      note: 'Historical snapshots not yet implemented. Showing initial and current values only.',
+      data: aggregatedData.map((snapshot) => ({
+        timestamp: snapshot.snapshot_at.toISOString(),
+        balance: Number(snapshot.balance),
+        equity: Number(snapshot.balance) + Number(snapshot.unrealized_pnl),
+        available_balance: Number(snapshot.available_balance),
+        margin_used: Number(snapshot.margin_used),
+        unrealized_pnl: Number(snapshot.unrealized_pnl),
+        realized_pnl: Number(snapshot.realized_pnl),
+        total_fees_paid: Number(snapshot.total_fees_paid),
+        total_trades: snapshot.total_trades,
+        win_rate: Number(snapshot.win_rate),
+        open_positions_count: snapshot.open_positions_count,
+        positions_skipped: snapshot.positions_skipped,
+      })),
+      summary: {
+        start_balance: startBalance,
+        end_balance: endBalance,
+        total_return: totalReturn,
+        return_percentage: startBalance > 0 ? ((endBalance - startBalance) / startBalance) * 100 : 0,
+        total_snapshots: snapshots.length,
+        aggregated_points: aggregatedData.length,
+      },
     };
+  }
+
+  /**
+   * Aggregate snapshots based on granularity
+   * Takes the last snapshot in each time interval
+   */
+  private aggregateSnapshots(
+    snapshots: Prisma.PortfolioSnapshotGetPayload<{}>[],
+    granularity?: PerformanceGranularity
+  ): Prisma.PortfolioSnapshotGetPayload<{}>[] {
+    if (!granularity || granularity === PerformanceGranularity.HOURLY) {
+      // Return all hourly snapshots
+      return snapshots;
+    }
+
+    // Group snapshots by time interval
+    const groups = new Map<string, Prisma.PortfolioSnapshotGetPayload<{}>[]>();
+
+    snapshots.forEach((snapshot) => {
+      const date = new Date(snapshot.snapshot_at);
+      let groupKey: string;
+
+      switch (granularity) {
+        case PerformanceGranularity.TWELVE_HOURLY:
+          // Group by 12-hour intervals (0-11, 12-23)
+          const twelveHourBlock = Math.floor(date.getUTCHours() / 12);
+          groupKey = `${date.toISOString().split('T')[0]}_${twelveHourBlock}`;
+          break;
+
+        case PerformanceGranularity.DAILY:
+          // Group by day (UTC)
+          groupKey = date.toISOString().split('T')[0];
+          break;
+
+        case PerformanceGranularity.WEEKLY:
+          // Group by week (ISO week)
+          const weekStart = new Date(date);
+          weekStart.setUTCHours(0, 0, 0, 0);
+          const dayOfWeek = weekStart.getUTCDay();
+          const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Monday as start of week
+          weekStart.setUTCDate(weekStart.getUTCDate() - diff);
+          groupKey = weekStart.toISOString().split('T')[0];
+          break;
+
+        default:
+          groupKey = date.toISOString();
+      }
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, []);
+      }
+      groups.get(groupKey)!.push(snapshot);
+    });
+
+    // For each group, take the last snapshot (most recent in that interval)
+    // Since snapshots are already ordered ASC from DB, the last item is the most recent
+    const aggregated: Prisma.PortfolioSnapshotGetPayload<{}>[] = [];
+    groups.forEach((group) => {
+      // Take the last snapshot in the group (most recent)
+      aggregated.push(group[group.length - 1]);
+    });
+
+    // Sort final result by timestamp ascending
+    aggregated.sort((a, b) => new Date(a.snapshot_at).getTime() - new Date(b.snapshot_at).getTime());
+
+    return aggregated;
   }
 
   /**

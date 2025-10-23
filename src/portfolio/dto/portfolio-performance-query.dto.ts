@@ -10,6 +10,13 @@ export enum PerformanceTimeframe {
   ALL = 'ALL',
 }
 
+export enum PerformanceGranularity {
+  HOURLY = 'HOURLY',
+  TWELVE_HOURLY = '12H',
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+}
+
 export class PortfolioPerformanceQueryDto {
   @ApiPropertyOptional({
     description: 'Performance timeframe',
@@ -19,4 +26,13 @@ export class PortfolioPerformanceQueryDto {
   @IsOptional()
   @IsEnum(PerformanceTimeframe)
   timeframe?: PerformanceTimeframe = PerformanceTimeframe.ONE_MONTH;
+
+  @ApiPropertyOptional({
+    description: 'Data granularity - how to aggregate hourly snapshots',
+    enum: PerformanceGranularity,
+    default: PerformanceGranularity.DAILY,
+  })
+  @IsOptional()
+  @IsEnum(PerformanceGranularity)
+  granularity?: PerformanceGranularity = PerformanceGranularity.DAILY;
 }
