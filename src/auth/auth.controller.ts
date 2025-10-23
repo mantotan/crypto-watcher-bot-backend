@@ -3,7 +3,13 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@ne
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
-import { AuthService } from './auth.service';
+import { AuthCoreService } from './services/auth-core.service';
+import { EmailVerificationService } from './services/email-verification.service';
+import { PasswordResetService } from './services/password-reset.service';
+import { PasswordManagementService } from './services/password-management.service';
+import { OAuthService } from './services/oauth.service';
+import { TwoFactorAuthService } from './services/two-factor-auth.service';
+import { UserProfileService } from './services/user-profile.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -24,7 +30,15 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authCoreService: AuthCoreService,
+    private emailVerificationService: EmailVerificationService,
+    private passwordResetService: PasswordResetService,
+    private passwordManagementService: PasswordManagementService,
+    private oauthService: OAuthService,
+    private twoFactorAuthService: TwoFactorAuthService,
+    private userProfileService: UserProfileService,
+  ) {}
 
   /**
    * Get cookie domain based on environment configuration
@@ -52,7 +66,10 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Email already registered' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
   async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+    const result = await this.authCoreService.register(registerDto);
+    // Send verification email after successful registration
+    await this.emailVerificationService.sendVerificationCode(result.userId, result.email);
+    return result;
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 attempts per minute
@@ -72,7 +89,12 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid or expired verification code' })
   @ApiResponse({ status: 429, description: 'Too many attempts. Rate limit: 10 per minute' })
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto, @Res({ passthrough: true }) res: Response) {
-    return this.authService.verifyEmail(verifyEmailDto.email, verifyEmailDto.code, res);
+    return this.emailVerificationService.verifyEmail(
+      verifyEmailDto.email,
+      verifyEmailDto.code,
+      res,
+      this.authCoreService.generateTokens.bind(this.authCoreService)
+    );
   }
 
   @Throttle({ default: { limit: 3, ttl: 60000 } })
@@ -82,7 +104,7 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'User not found or email already verified' })
   @ApiResponse({ status: 429, description: 'Too many requests. Rate limit: 3 per minute' })
   async resendVerification(@Body() resendVerificationDto: ResendVerificationDto) {
-    return this.authService.resendVerificationCode(resendVerificationDto.email);
+    return this.emailVerificationService.resendVerificationCode(resendVerificationDto.email);
   }
 
   @Post('login')
@@ -114,7 +136,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 403, description: 'Email not verified' })
   async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    return this.authService.login(loginDto, res);
+    return this.authCoreService.login(loginDto, res);
   }
 
   @Post('refresh')
@@ -134,7 +156,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Invalid or missing refresh token' })
   async refresh(@Request() req, @Res({ passthrough: true }) res: Response) {
-    return this.authService.refreshToken(req, res);
+    return this.authCoreService.refreshToken(req, res);
   }
 
   @Throttle({ default: { limit: 3, ttl: 60000 } })
@@ -146,7 +168,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 429, description: 'Too many requests. Rate limit: 3 per minute' })
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(forgotPasswordDto.email);
+    return this.passwordResetService.forgotPassword(forgotPasswordDto.email);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 attempts per minute
@@ -156,7 +178,7 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid or expired reset code' })
   @ApiResponse({ status: 429, description: 'Too many attempts. Rate limit: 5 per minute' })
   async verifyResetCode(@Body() verifyResetCodeDto: VerifyResetCodeDto) {
-    return this.authService.verifyResetCode(verifyResetCodeDto.email, verifyResetCodeDto.code);
+    return this.passwordResetService.verifyResetCode(verifyResetCodeDto.email, verifyResetCodeDto.code);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 attempts per minute
@@ -166,7 +188,7 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid or expired reset code' })
   @ApiResponse({ status: 429, description: 'Too many attempts. Rate limit: 5 per minute' })
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
-    return this.authService.resetPassword(
+    return this.passwordResetService.resetPassword(
       resetPasswordDto.email,
       resetPasswordDto.code,
       resetPasswordDto.newPassword,
@@ -196,7 +218,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized - must be logged in' })
   async setPassword(@Request() req, @Body() setPasswordDto: SetPasswordDto) {
     const userId = req.user.id;
-    return this.authService.setPassword(userId, setPasswordDto.password);
+    return this.passwordManagementService.setPassword(userId, setPasswordDto.password);
   }
 
   @SkipThrottle() // Skip rate limiting for profile checks (called frequently, protected by JWT)
@@ -238,7 +260,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async updateProfile(@Request() req, @Body() updateProfileDto: UpdateProfileDto) {
     const userId = req.user.id;
-    return this.authService.updateUserProfile(userId, updateProfileDto);
+    return this.userProfileService.updateUserProfile(userId, updateProfileDto);
   }
 
   @Post('logout')
@@ -256,7 +278,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async logout(@Res({ passthrough: true }) res: Response) {
-    return this.authService.logout(res);
+    return this.authCoreService.logout(res);
   }
 
   // ========================================
@@ -295,7 +317,7 @@ export class AuthController {
     }
 
     // Regular login flow - generate tokens and set cookies
-    const tokens = await this.authService['generateTokens'](user.id, user.email);
+    const tokens = await this.authCoreService.generateTokens(user.id, user.email);
 
     // SECURITY: Set tokens in HTTP-only cookies instead of URL params
     const isProduction = process.env.NODE_ENV === 'production';
@@ -335,7 +357,7 @@ export class AuthController {
     const userId = req.user.id;
 
     // SECURITY: Generate signed state parameter to prevent CSRF
-    const state = this.authService.generateSignedState(userId);
+    const state = this.oauthService.generateSignedState(userId);
 
     // Build Google OAuth URL with signed state parameter
     // IMPORTANT: Use same callback URL as login (differentiate via state parameter)
@@ -370,7 +392,7 @@ export class AuthController {
     const userId = req.user.id;
 
     if (provider === 'google') {
-      return this.authService.unlinkGoogleAccount(userId);
+      return this.oauthService.unlinkGoogleAccount(userId);
     }
 
     throw new Error('Invalid provider');
@@ -403,7 +425,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getLinkedAccounts(@Request() req) {
     const userId = req.user.id;
-    return this.authService.getLinkedAccounts(userId);
+    return this.oauthService.getLinkedAccounts(userId);
   }
 
   // ========================================
@@ -432,7 +454,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid password or unauthorized' })
   async setup2FA(@Request() req, @Body() setup2FADto: Setup2FADto) {
     const userId = req.user.id;
-    return this.authService.setup2FA(userId, setup2FADto.currentPassword);
+    return this.twoFactorAuthService.setup2FA(userId, setup2FADto.currentPassword);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -460,7 +482,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid 2FA code or unauthorized' })
   async enable2FA(@Request() req, @Body() enable2FADto: Enable2FADto) {
     const userId = req.user.id;
-    return this.authService.enable2FA(userId, enable2FADto.twoFactorCode);
+    return this.twoFactorAuthService.enable2FA(userId, enable2FADto.twoFactorCode);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -474,7 +496,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid password or 2FA code' })
   async disable2FA(@Request() req, @Body() disable2FADto: Disable2FADto) {
     const userId = req.user.id;
-    return this.authService.disable2FA(
+    return this.twoFactorAuthService.disable2FA(
       userId,
       disable2FADto.currentPassword,
       disable2FADto.twoFactorCode
@@ -501,12 +523,14 @@ export class AuthController {
     const ipAddress = req.ip;
     const userAgent = req.headers['user-agent'];
 
-    return this.authService.verify2FALogin(
+    return this.twoFactorAuthService.verify2FALogin(
       verify2FADto.tempToken,
       verify2FADto.code,
       ipAddress,
       userAgent,
-      res
+      res,
+      this.authCoreService.generateTokens.bind(this.authCoreService),
+      this.authCoreService.resetLoginAttempts.bind(this.authCoreService)
     );
   }
 
@@ -532,7 +556,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid password or 2FA code' })
   async regenerateBackupCodes(@Request() req, @Body() regenerateDto: RegenerateBackupCodesDto) {
     const userId = req.user.id;
-    return this.authService.regenerateBackupCodes(
+    return this.twoFactorAuthService.regenerateBackupCodes(
       userId,
       regenerateDto.currentPassword,
       regenerateDto.twoFactorCode
@@ -558,6 +582,6 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async get2FAStatus(@Request() req) {
     const userId = req.user.id;
-    return this.authService.get2FAStatus(userId);
+    return this.twoFactorAuthService.get2FAStatus(userId);
   }
 }

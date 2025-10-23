@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback, Profile } from 'passport-google-oauth20';
-import { AuthService } from '../auth.service';
+import { OAuthService } from '../services/oauth.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
-  constructor(private authService: AuthService) {
+  constructor(private oauthService: OAuthService) {
     super({
       clientID: process.env.GOOGLE_CLIENT_ID || 'dummy-client-id',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'dummy-secret',
@@ -40,9 +40,9 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       let user;
       if (isLinkingRequest) {
         // SECURITY: Validate signed state parameter
-        const userId = this.authService.validateSignedState(state);
+        const userId = this.oauthService.validateSignedState(state);
 
-        user = await this.authService.linkGoogleAccount(
+        user = await this.oauthService.linkGoogleAccount(
           userId,
           id,
           email,
@@ -53,7 +53,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         );
       } else {
         // Regular OAuth login
-        user = await this.authService.validateGoogleUser(
+        user = await this.oauthService.validateGoogleUser(
           id,
           email,
           displayName,
