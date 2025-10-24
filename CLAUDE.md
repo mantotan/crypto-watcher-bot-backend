@@ -2,6 +2,9 @@
 
 Claude Code guidance for this NestJS-based crypto trading bot API backend. Handles authentication, trading accounts, strategies (real/paper), backtesting, and portfolio tracking. Integrates with PostgreSQL, Redis, and GraphQL chart service.
 
+## USER NOTES
+- prisma schema here is only read only, no need to do anything with the migration just do prisma generate is enough, migration is done and managed by another project
+
 ## Architecture
 
 **API Layer** (`src/main.ts`, `src/app.module.ts`)
@@ -157,7 +160,9 @@ GET /backtest/progress/all
 
 **Backend Architecture:**
 - Python worker publishes to Redis Pub/Sub: `PUBLISH backtest:progress:all {json}` (global channel)
-- Python worker caches to Redis hash: `HSET backtest:progress:latest {backtest_id} {json}`
+- Python worker caches to individual Redis keys: `SET backtest:progress:cache:{backtest_id} {json} EX {ttl}`
+  - Automatic TTL cleanup: 1 hour (completed/failed), 24 hours (running)
+  - 99% memory reduction vs old hash-based approach
 - NestJS `BacktestProgressGateway` pattern-subscribes via `PSUBSCRIBE backtest:progress:*`, parses JSON directly
 - User authorization: Messages filtered by user_id (users only receive updates for their own backtests)
 - Data format: Python sends structured format with backtest_id, user_id, status (enum), progress_percentage (decimal), current_step (enum)
