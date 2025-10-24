@@ -527,17 +527,55 @@ export class BacktestService {
 
     // Extract first top/bottom timestamp from pattern_data
     // Pattern data structure varies by pattern type, but generally has first_top or first_bottom
-    if (patternData.first_top?.timestamp) {
-      referenceTime = new Date(patternData.first_top.timestamp);
-    } else if (patternData.first_bottom?.timestamp) {
-      referenceTime = new Date(patternData.first_bottom.timestamp);
-    } else if (patternData.peak?.timestamp) {
-      referenceTime = new Date(patternData.peak.timestamp);
+    // Note: Python worker uses 'datetime' field, but we also check 'timestamp' for backward compatibility
+
+    // Helper to safely parse and validate date
+    const tryParseDate = (value: any): Date | null => {
+      if (!value) return null;
+      const date = new Date(value);
+      return isNaN(date.getTime()) ? null : date;
+    };
+
+    // Try to find valid reference time from pattern data
+    let patternSource: string | null = null;
+
+    if (patternData?.first_top) {
+      const dateValue = patternData.first_top.datetime || patternData.first_top.timestamp;
+      referenceTime = tryParseDate(dateValue);
+      if (referenceTime) patternSource = 'first_top';
+    }
+
+    if (!referenceTime && patternData?.first_bottom) {
+      const dateValue = patternData.first_bottom.datetime || patternData.first_bottom.timestamp;
+      referenceTime = tryParseDate(dateValue);
+      if (referenceTime) patternSource = 'first_bottom';
+    }
+
+    if (!referenceTime && patternData?.peak) {
+      const dateValue = patternData.peak.datetime || patternData.peak.timestamp;
+      referenceTime = tryParseDate(dateValue);
+      if (referenceTime) patternSource = 'peak';
+    }
+
+    if (referenceTime && patternSource) {
+      this.logger.debug(
+        `Using ${patternSource} reference time: ${referenceTime.toISOString()} for trade ${tradeId}`
+      );
     } else {
-      // Fallback to entry datetime if pattern timestamp not found
+      // Fallback to entry datetime if pattern timestamp not found or invalid
       referenceTime = new Date(trade.entry_datetime);
+
+      // Validate fallback date
+      if (isNaN(referenceTime.getTime())) {
+        this.logger.error(
+          `Invalid entry_datetime for trade ${tradeId}: ${trade.entry_datetime}. This should not happen.`
+        );
+        throw new Error('Invalid trade entry_datetime');
+      }
+
       this.logger.warn(
-        `Could not find pattern timestamp in trade ${tradeId}, using entry_datetime as reference`,
+        `Could not find valid pattern datetime/timestamp in trade ${tradeId}, using entry_datetime as reference. ` +
+        `Pattern keys: ${patternData ? Object.keys(patternData).join(', ') : 'null'}`
       );
     }
 

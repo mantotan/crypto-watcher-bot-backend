@@ -35,7 +35,15 @@ export class GraphQLService {
       },
     });
 
-    this.logger.log(`GraphQL Chart Service URL: ${this.serviceUrl}`);
+    this.logger.log(`GraphQL Chart Service initialized with URL: ${this.serviceUrl}`);
+
+    // Warn if using default URL (likely misconfiguration in production)
+    if (!process.env.GRAPHQL_CHART_SERVICE_URL) {
+      this.logger.warn(
+        'GRAPHQL_CHART_SERVICE_URL not set, using default: http://localhost:8000/graphql. ' +
+        'This may cause issues in production if the chart service is on a different host.'
+      );
+    }
   }
 
   /**
@@ -122,18 +130,24 @@ export class GraphQLService {
         const isNetworkError = this.isNetworkError(error);
         const isLastAttempt = attempt === maxRetries;
 
+        // Enhanced error logging with more details
+        const errorDetails = this.formatErrorDetails(error);
+
         if (isNetworkError && !isLastAttempt) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff: 1s, 2s, 4s (max 10s)
           this.logger.warn(
-            `Network error fetching candles for ${symbol} ${timeframe} (attempt ${attempt}/${maxRetries}): ${error?.message || String(error)}. Retrying in ${delay}ms...`,
+            `Network error fetching candles for ${symbol} ${timeframe} from ${startTime.toISOString()} to ${endTime.toISOString()} ` +
+            `(attempt ${attempt}/${maxRetries}): ${errorDetails}. Retrying in ${delay}ms...`
           );
           await this.sleep(delay);
           continue;
         }
 
-        // Log error but return empty array instead of throwing
+        // Log detailed error for debugging
         this.logger.error(
-          `Failed to fetch candles for ${symbol} ${timeframe} after ${attempt} attempt(s): ${error?.message || String(error)}`,
+          `Failed to fetch candles for ${symbol} ${timeframe} after ${attempt} attempt(s). ` +
+          `Date range: ${startTime.toISOString()} to ${endTime.toISOString()}. ` +
+          `GraphQL URL: ${this.serviceUrl}. Error details: ${errorDetails}`
         );
 
         // Return empty array instead of throwing - graceful degradation
@@ -143,7 +157,10 @@ export class GraphQLService {
 
     // If we get here, all retries failed
     this.logger.error(
-      `All ${maxRetries} attempts failed to fetch candles for ${symbol} ${timeframe}: ${lastError?.message}`,
+      `All ${maxRetries} attempts failed to fetch candles for ${symbol} ${timeframe}. ` +
+      `Date range: ${startTime.toISOString()} to ${endTime.toISOString()}. ` +
+      `GraphQL URL: ${this.serviceUrl}. ` +
+      `Last error: ${this.formatErrorDetails(lastError)}`
     );
     return [];
   }
@@ -174,6 +191,84 @@ export class GraphQLService {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Format error details for better debugging
+   * Safely handles circular references and large objects
+   */
+  private formatErrorDetails(error: any): string {
+    if (axios.isAxiosError(error)) {
+      const details: string[] = [];
+
+      // Add error code
+      if (error.code) {
+        details.push(`Code: ${error.code}`);
+      }
+
+      // Add HTTP status
+      if (error.response?.status) {
+        details.push(`HTTP ${error.response.status}`);
+      }
+
+      // Add response data if available (safely handle all types)
+      if (error.response?.data !== undefined && error.response?.data !== null) {
+        try {
+          let responseData: string;
+
+          if (typeof error.response.data === 'string') {
+            // Safely truncate string responses
+            responseData = error.response.data.length > 200
+              ? error.response.data.substring(0, 200) + '...'
+              : error.response.data;
+          } else if (typeof error.response.data === 'object') {
+            // Safely stringify objects (handles circular references)
+            const seen = new WeakSet();
+            const safeStringify = (obj: any): string => {
+              return JSON.stringify(obj, (key, value) => {
+                if (typeof value === 'object' && value !== null) {
+                  if (seen.has(value)) {
+                    return '[Circular]';
+                  }
+                  seen.add(value);
+                }
+                return value;
+              });
+            };
+
+            const jsonStr = safeStringify(error.response.data);
+            responseData = jsonStr.length > 200 ? jsonStr.substring(0, 200) + '...' : jsonStr;
+          } else {
+            // Handle other types (number, boolean, etc.)
+            responseData = String(error.response.data);
+          }
+
+          details.push(`Response: ${responseData}`);
+        } catch (e) {
+          // If all else fails, indicate data was present but couldn't be serialized
+          details.push(`Response: [Unable to serialize: ${e.message}]`);
+        }
+      }
+
+      // Add base error message
+      if (error.message) {
+        details.push(`Message: ${error.message}`);
+      }
+
+      return details.length > 0 ? details.join(', ') : 'Unknown axios error';
+    }
+
+    // Handle non-axios errors
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+
+    // Handle primitive values and other types
+    try {
+      return String(error);
+    } catch (e) {
+      return 'Unknown error (could not stringify)';
+    }
   }
 
   /**
