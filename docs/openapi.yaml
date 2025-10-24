@@ -816,8 +816,12 @@ paths:
                   data:
                     type: object
                     properties:
-                      task_id:
+                      backtest_id:
                         type: string
+                        description: Backtest task ID
+                      user_id:
+                        type: string
+                        description: User who owns this backtest
                       status:
                         type: string
                         enum:
@@ -825,17 +829,32 @@ paths:
                           - running
                           - completed
                           - failed
+                        description: Current backtest status
                       progress_percentage:
                         type: number
                         example: 45.5
+                        description: Progress 0-100 (decimal)
                       current_step:
                         type: string
                         example: detecting_patterns
+                        description: Current processing step
+                        enum:
+                          - initializing
+                          - fetching_data
+                          - detecting_patterns
+                          - sorting_patterns
+                          - executing_trades
+                          - generating_results
+                          - finalizing
+                          - completed
+                          - failed
                       timestamp:
                         type: string
                         format: date-time
+                        description: ISO 8601 UTC timestamp
                       metadata:
                         type: object
+                        description: Context-specific metadata (varies by processing step)
                         properties:
                           current_symbol:
                             type: string
@@ -851,6 +870,8 @@ paths:
                             format: date-time
         '401':
           description: Unauthorized
+        '403':
+          description: Forbidden - Task belongs to another user
         '404':
           description: Task not found or no progress available
       security: *ref_1
@@ -874,24 +895,51 @@ paths:
                     example: true
                   data:
                     type: object
+                    description: Map of backtest_id to progress data
                     additionalProperties:
                       type: object
                       properties:
-                        task_id:
+                        backtest_id:
                           type: string
+                          description: Backtest task ID
+                        user_id:
+                          type: string
+                          description: User who owns this backtest
                         status:
                           type: string
+                          enum:
+                            - pending
+                            - running
+                            - completed
+                            - failed
+                          description: Current backtest status
                         progress_percentage:
                           type: number
+                          description: Progress 0-100 (decimal)
                         current_step:
                           type: string
+                          description: Current processing step
+                          enum:
+                            - initializing
+                            - fetching_data
+                            - detecting_patterns
+                            - sorting_patterns
+                            - executing_trades
+                            - generating_results
+                            - finalizing
+                            - completed
+                            - failed
                         timestamp:
                           type: string
+                          format: date-time
+                          description: ISO 8601 UTC timestamp
                         metadata:
                           type: object
+                          description: Context-specific metadata
                   count:
                     type: number
                     example: 3
+                    description: Number of active backtests
         '401':
           description: Unauthorized
       security: *ref_1

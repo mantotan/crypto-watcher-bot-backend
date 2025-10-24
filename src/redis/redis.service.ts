@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { createClient, RedisClientType } from 'redis';
 
-// Redis keys for progress tracking
-const PROGRESS_HASH_KEY = 'backtest:progress:latest';
+// Redis key pattern for progress tracking
+const PROGRESS_CACHE_KEY_PREFIX = 'backtest:progress:cache:'; // Individual keys with TTL
 
 /**
  * Backtest task status enum
@@ -164,11 +164,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get cached progress for a specific task from Redis hash
+   * Get cached progress for a specific task from Redis
+   * Uses individual key with TTL instead of hash
    */
   async getTaskProgress(taskId: string): Promise<ProgressData | null> {
     try {
-      const cached = await this.client.hGet(PROGRESS_HASH_KEY, taskId);
+      const cacheKey = `${PROGRESS_CACHE_KEY_PREFIX}${taskId}`;
+      const cached = await this.client.get(cacheKey);
 
       if (!cached || typeof cached !== 'string') {
         return null;
@@ -182,25 +184,147 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get all active tasks progress from Redis hash
+   * Get all active tasks progress from Redis
+   * Uses SCAN pattern matching with pipeline for efficient batch GET
    */
   async getAllTasksProgress(): Promise<Record<string, ProgressData>> {
     try {
-      const allProgress = await this.client.hGetAll(PROGRESS_HASH_KEY);
       const result: Record<string, ProgressData> = {};
+      const pattern = `${PROGRESS_CACHE_KEY_PREFIX}*`;
+      const allKeys: string[] = [];
+      let cursor = '0';
+      let iterations = 0;
+      const MAX_SCAN_ITERATIONS = 1000; // Safety limit to prevent infinite loops
 
-      for (const [taskId, progressJson] of Object.entries(allProgress)) {
-        try {
-          result[taskId] = JSON.parse(progressJson) as ProgressData;
-        } catch (parseError) {
-          this.logger.error(`Failed to parse progress for task ${taskId}: ${parseError.message}`);
+      // Step 1: Collect all keys using SCAN
+      do {
+        const scanResult = await this.client.scan(cursor, {
+          MATCH: pattern,
+          COUNT: 100,
+        });
+
+        cursor = String(scanResult.cursor);
+        allKeys.push(...scanResult.keys);
+        iterations++;
+
+        // Safety check: prevent infinite loops
+        if (iterations >= MAX_SCAN_ITERATIONS) {
+          this.logger.error(
+            `SCAN exceeded max iterations (${MAX_SCAN_ITERATIONS}). Found ${allKeys.length} keys. This may indicate a Redis issue.`
+          );
+          break;
         }
+      } while (cursor !== '0');
+
+      if (allKeys.length === 0) {
+        return result;
+      }
+
+      this.logger.debug(`Found ${allKeys.length} progress keys in ${iterations} SCAN iteration(s)`);
+
+      // Step 2: Batch GET using pipeline for better performance
+      const pipeline = this.client.multi();
+      for (const key of allKeys) {
+        pipeline.get(key);
+      }
+
+      const responses = await pipeline.exec();
+
+      // Safety check: ensure responses array matches keys array
+      if (!Array.isArray(responses) || responses.length !== allKeys.length) {
+        this.logger.error(
+          `Pipeline response length mismatch: expected ${allKeys.length}, got ${responses?.length || 0}`
+        );
+        return result;
+      }
+
+      // Step 3: Parse results
+      let skippedCount = 0;
+      for (let i = 0; i < allKeys.length; i++) {
+        const data = responses[i];
+
+        // Skip null responses (key expired or deleted between SCAN and GET)
+        if (data === null || data === undefined) {
+          skippedCount++;
+          continue;
+        }
+
+        if (typeof data === 'string') {
+          try {
+            // Extract backtest_id from key (remove prefix)
+            const backtestId = allKeys[i].replace(PROGRESS_CACHE_KEY_PREFIX, '');
+            const progressData = JSON.parse(data) as ProgressData;
+
+            // Validate critical fields to ensure data integrity
+            if (progressData.backtest_id && progressData.user_id && progressData.status) {
+              result[backtestId] = progressData;
+            } else {
+              this.logger.warn(
+                `Progress data missing required fields for key ${allKeys[i]}. Skipping.`
+              );
+              skippedCount++;
+            }
+          } catch (parseError) {
+            this.logger.error(`Failed to parse progress for key ${allKeys[i]}: ${parseError.message}`);
+            skippedCount++;
+          }
+        } else {
+          this.logger.warn(
+            `Unexpected response type for key ${allKeys[i]}: ${typeof data}. Expected string or null.`
+          );
+          skippedCount++;
+        }
+      }
+
+      if (skippedCount > 0) {
+        this.logger.debug(
+          `Skipped ${skippedCount} invalid/expired keys out of ${allKeys.length} total`
+        );
       }
 
       return result;
     } catch (error) {
       this.logger.error(`Failed to get all tasks progress: ${error.message}`);
       return {};
+    }
+  }
+
+  /**
+   * Get all active tasks progress for a specific user
+   * Filters by user_id from progress data
+   */
+  async getUserTasksProgress(userId: string): Promise<Record<string, ProgressData>> {
+    try {
+      const allProgress = await this.getAllTasksProgress();
+      const result: Record<string, ProgressData> = {};
+
+      // Filter by user_id
+      for (const [backtestId, progress] of Object.entries(allProgress)) {
+        if (progress.user_id === userId) {
+          result[backtestId] = progress;
+        }
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to get user tasks progress for ${userId}: ${error.message}`);
+      return {};
+    }
+  }
+
+  /**
+   * Clear progress cache for a specific task
+   * Note: Manual cleanup is rarely needed since Redis TTL handles it automatically
+   * - Completed/failed backtests expire after 1 hour
+   * - Running backtests expire after 24 hours
+   */
+  async clearTaskProgress(taskId: string): Promise<void> {
+    try {
+      const cacheKey = `${PROGRESS_CACHE_KEY_PREFIX}${taskId}`;
+      await this.client.del(cacheKey);
+      this.logger.debug(`Cleared progress cache for task ${taskId}`);
+    } catch (error) {
+      this.logger.error(`Failed to clear task progress for ${taskId}: ${error.message}`);
     }
   }
 }
