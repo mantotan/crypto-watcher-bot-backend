@@ -45,7 +45,7 @@ export class BacktestProgressGateway
 
   private readonly logger = new Logger(BacktestProgressGateway.name);
   private isSubscribed = false;
-  private readonly REDIS_CHANNEL_PATTERN = 'backtest:progress:*'; // Pattern to match all task channels
+  private readonly REDIS_CHANNEL = 'backtest:progress:all'; // Exact channel for all progress updates
   private tokenExpirationChecker: NodeJS.Timeout | null = null;
 
   // Redis retry management
@@ -164,16 +164,16 @@ export class BacktestProgressGateway
       this.logger.log('Token expiration checker stopped');
     }
 
-    // Unsubscribe from Redis pattern to prevent memory leaks
+    // Unsubscribe from Redis channel to prevent memory leaks
     if (this.isSubscribed) {
       try {
         const subscriber = this.redisService.getSubscriber();
 
         // Safety check: Only unsubscribe if client is still open
         if (subscriber && subscriber.isOpen) {
-          // Unsubscribe from pattern (automatically removes the listener)
-          await subscriber.pUnsubscribe(this.REDIS_CHANNEL_PATTERN);
-          this.logger.log(`Unsubscribed from Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
+          // Unsubscribe from channel (automatically removes the listener)
+          await subscriber.unsubscribe(this.REDIS_CHANNEL);
+          this.logger.log(`Unsubscribed from Redis channel: ${this.REDIS_CHANNEL}`);
         } else {
           this.logger.warn('Redis subscriber already closed, skipping unsubscribe');
         }
@@ -287,6 +287,9 @@ export class BacktestProgressGateway
       // Signature: (message: string, channel: string) => void
       // Note: Redis v5 client automatically resubscribes on reconnection
       this.messageHandler = (message: string, channel: string) => {
+        // DEBUG: Log EVERY message received from Redis to confirm handler is called
+        this.logger.debug(`🔔 Redis message received on channel: ${channel}, message length: ${message?.length || 0}`);
+
         try {
           // Safety check: Ensure message is a string
           if (typeof message !== 'string' || !message) {
@@ -318,11 +321,14 @@ export class BacktestProgressGateway
         }
       };
 
-      // Subscribe to pattern with listener (Redis v5 API requires listener as 2nd param)
-      await subscriber.pSubscribe(this.REDIS_CHANNEL_PATTERN, this.messageHandler);
+      // Verify subscriber client is connected
+      this.logger.log(`Subscriber client isOpen: ${subscriber.isOpen}, isReady: ${subscriber.isReady}`);
+
+      // Subscribe to exact channel with listener (Redis v5 API requires listener as 2nd param)
+      await subscriber.subscribe(this.REDIS_CHANNEL, this.messageHandler);
 
       this.isSubscribed = true;
-      this.logger.log(`Subscribed to Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
+      this.logger.log(`✅ Successfully subscribed to Redis channel: ${this.REDIS_CHANNEL}`);
     } catch (error) {
       // Check if we've exceeded retry limit
       if (this.redisRetryCount >= this.MAX_REDIS_RETRIES) {
