@@ -145,7 +145,7 @@ All responses follow this structure:
 **WebSocket** (Real-time Progress):
 - Namespace: `ws://localhost:3733/backtest-progress`
 - Events: `subscribe`, `unsubscribe`, `get_progress`, `progress`, `all_tasks`, `error`
-- **Authentication**: JWT token required in `auth.token`
+- **Authentication**: HTTP-only cookies (same as REST API) - user must be logged in
 
 ### Portfolios (`/portfolios`)
 
@@ -343,8 +343,10 @@ For real-time backtest progress tracking:
 ```typescript
 import io from 'socket.io-client';
 
+// User must be logged in first (REST API sets HTTP-only cookies)
 const socket = io('http://localhost:3733/backtest-progress', {
-  auth: { token: yourAccessToken }
+  withCredentials: true,  // Required: sends HTTP-only cookies for auth
+  transports: ['websocket']
 });
 
 socket.on('progress', (data) => {
@@ -354,7 +356,7 @@ socket.on('progress', (data) => {
 socket.emit('subscribe', taskId);
 ```
 
-**Authentication**: JWT token required in `auth.token`
+**Authentication**: HTTP-only cookies (same as REST API) - user must be logged in via `/auth/login`
 **Events**: See Swagger UI for complete WebSocket API
 
 ---

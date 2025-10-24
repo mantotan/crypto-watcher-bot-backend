@@ -21,7 +21,11 @@ import { WsJwtGuard } from './guards/ws-jwt.guard';
         return callback(null, true);
       }
 
-      const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3006';
+      // Strip quotes from FRONTEND_URL to match main.ts CORS config
+      const allowedOrigin = (process.env.FRONTEND_URL || 'http://localhost:3006')
+        .replace(/^["']|["']$/g, '')
+        .trim();
+
       if (origin === allowedOrigin) {
         callback(null, true);
       } else {
@@ -73,6 +77,47 @@ export class BacktestProgressGateway
         // Verify JWT token
         const payload = await this.jwtService.verifyAsync(token);
 
+        // Validate user exists and check security settings
+        const user = await this.prismaService.user.findUnique({
+          where: { id: payload.sub },
+          select: {
+            id: true,
+            email: true,
+            two_factor_enabled_at: true,
+            password_changed_at: true,
+          },
+        });
+
+        if (!user) {
+          return next(new Error('Unauthorized: User not found'));
+        }
+
+        // SECURITY: Invalidate token if 2FA was enabled/disabled after token was issued
+        const tokenTwoFactorEnabledAt = payload.two_factor_enabled_at || null;
+        const userTwoFactorEnabledAt = user.two_factor_enabled_at
+          ? Math.floor(user.two_factor_enabled_at.getTime() / 1000)
+          : null;
+
+        if (tokenTwoFactorEnabledAt !== userTwoFactorEnabledAt) {
+          this.logger.warn(
+            `WebSocket auth rejected for ${user.email}: 2FA settings changed after token issued`
+          );
+          return next(new Error('Unauthorized: Session expired - 2FA settings changed'));
+        }
+
+        // SECURITY: Invalidate token if password was changed after token was issued
+        const tokenPasswordChangedAt = payload.password_changed_at || null;
+        const userPasswordChangedAt = user.password_changed_at
+          ? Math.floor(user.password_changed_at.getTime() / 1000)
+          : null;
+
+        if (tokenPasswordChangedAt !== userPasswordChangedAt && userPasswordChangedAt !== null) {
+          this.logger.warn(
+            `WebSocket auth rejected for ${user.email}: password changed after token issued`
+          );
+          return next(new Error('Unauthorized: Session expired - password changed'));
+        }
+
         // Attach user to socket for use in handlers
         socket.data.user = {
           id: payload.sub,
@@ -82,6 +127,10 @@ export class BacktestProgressGateway
         // Store token expiration for validation
         socket.data.tokenExp = payload.exp;
         socket.data.tokenIat = payload.iat;
+
+        // Store security settings timestamps for validation in guards
+        socket.data.tokenTwoFactorEnabledAt = tokenTwoFactorEnabledAt;
+        socket.data.tokenPasswordChangedAt = tokenPasswordChangedAt;
 
         this.logger.debug(
           `WebSocket authenticated: ${payload.email} (${payload.sub}), expires: ${new Date(payload.exp * 1000).toISOString()}`
@@ -139,31 +188,19 @@ export class BacktestProgressGateway
 
   /**
    * Extract JWT token from Socket.IO handshake
-   * Priority: auth.token > Authorization header > cookie
+   *
+   * Web frontend only: Extracts token from HTTP-only cookies
+   * This matches the REST API authentication method for consistency.
    */
   private extractToken(client: Socket): string | null {
-    // 1. Socket.IO auth object (recommended)
-    const authToken = client.handshake.auth?.token;
-    if (authToken) {
-      return authToken;
-    }
-
-    // 2. Authorization header (Bearer token)
-    const authHeader = client.handshake.headers?.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      return authHeader.substring(7);
-    }
-
-    // 3. HTTP-only cookie (access_token)
+    // Extract JWT from HTTP-only cookie (accessToken - must match cookie.util.ts)
     const cookies = client.handshake.headers?.cookie;
-    if (cookies) {
-      const match = cookies.match(/access_token=([^;]+)/);
-      if (match) {
-        return match[1];
-      }
+    if (!cookies) {
+      return null;
     }
 
-    return null;
+    const match = cookies.match(/accessToken=([^;]+)/);
+    return match ? match[1] : null;
   }
 
   /**
@@ -452,13 +489,6 @@ export class BacktestProgressGateway
       this.logger.error(`Failed to verify task ownership: ${error.message}`);
       return false;
     }
-  }
-
-  /**
-   * Clear ownership cache entry (call when task is deleted)
-   */
-  private clearOwnershipCache(taskId: string) {
-    this.ownershipCache.delete(taskId);
   }
 
   /**

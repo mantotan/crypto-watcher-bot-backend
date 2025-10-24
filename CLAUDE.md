@@ -109,8 +109,11 @@ POST `/backtest/tasks` → Validate → Save to DB → Push to Redis `backtest:q
 
 **Real-time WebSocket (Recommended):**
 ```typescript
-// Frontend: Connect to WebSocket
-const socket = io('http://localhost:3733/backtest-progress', { transports: ['websocket'] });
+// Frontend: Connect to WebSocket (uses HTTP-only cookies for auth)
+const socket = io('http://localhost:3733/backtest-progress', {
+  withCredentials: true,  // Required: sends HTTP-only cookies
+  transports: ['websocket']
+});
 
 // Subscribe to task
 socket.emit('subscribe', 'task-abc-123');
@@ -125,6 +128,8 @@ socket.on('progress', (data) => {
 socket.on('all_tasks', (tasks) => console.log(tasks)); // On connect
 socket.on('global_progress', (data) => console.log(data)); // Real-time
 ```
+
+**Authentication:** WebSocket uses HTTP-only cookies (same as REST API). User must be logged in via `/auth/login` first.
 
 **HTTP Polling (Fallback):**
 ```bash
