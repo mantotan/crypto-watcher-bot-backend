@@ -356,6 +356,7 @@ export class BacktestProgressGateway
       'fetching_data',
       'detecting_patterns',
       'sorting_patterns',
+      'starting_trade_execution',  // New step from Python worker
       'executing_trades',
       'generating_results',
       'finalizing',
@@ -424,20 +425,7 @@ export class BacktestProgressGateway
   private handleProgressUpdate(progressData: ProgressData) {
     // Safety check: ensure server is initialized
     if (!this.server) {
-      this.logger.debug('Progress update received but WebSocket server not initialized yet');
-      return;
-    }
-
-    // Safety check: ensure server.sockets exists (Socket.IO namespace)
-    if (!this.server.sockets) {
-      this.logger.debug('Progress update received but WebSocket namespace not ready');
-      return;
-    }
-
-    // Safety check: ensure server.sockets.sockets exists (client Map)
-    if (!this.server.sockets.sockets) {
-      this.logger.debug('Progress update received but WebSocket client Map not available');
-      return;
+      return; // Silent return during initialization
     }
 
     const { backtest_id, user_id } = progressData;
@@ -453,31 +441,48 @@ export class BacktestProgressGateway
       return;
     }
 
-    // Check if there are any connected clients at all
-    const totalClients = this.server.sockets.sockets.size;
-    if (totalClients === 0) {
-      // This is normal - backtest may run when user is not connected
-      // No need to log every update when no clients are connected
-      return;
-    }
+    // Try to access client sockets with defensive checks
+    // Socket.IO may not have initialized the sockets Map yet during startup
+    try {
+      const socketsMap = this.server?.sockets?.sockets;
 
-    // Emit ONLY to authenticated users who own this backtest
-    let sentCount = 0;
-    this.server.sockets.sockets.forEach((socket) => {
-      if (socket.data.user?.id === user_id) {
-        socket.emit('progress', progressData);
-        sentCount++;
+      // If sockets Map doesn't exist yet, silently return (initialization phase)
+      if (!socketsMap) {
+        return;
       }
-    });
 
-    if (sentCount > 0) {
+      // Check if there are any connected clients at all
+      const totalClients = socketsMap.size;
+      if (totalClients === 0) {
+        // This is normal - backtest may run when user is not connected
+        // No need to log every update when no clients are connected
+        return;
+      }
+
+      // Emit ONLY to authenticated users who own this backtest
+      let sentCount = 0;
+      socketsMap.forEach((socket) => {
+        if (socket.data.user?.id === user_id) {
+          socket.emit('progress', progressData);
+          sentCount++;
+        }
+      });
+
+      if (sentCount > 0) {
+        this.logger.debug(
+          `Progress update sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
+        );
+      } else {
+        // Log when clients exist but none for this user (helps with debugging)
+        this.logger.debug(
+          `No connected clients for user ${user_id}, backtest ${backtest_id}. ${totalClients} other client(s) connected.`
+        );
+      }
+    } catch (error) {
+      // Catch any unexpected errors accessing sockets during initialization
+      // This prevents the Redis subscription from crashing
       this.logger.debug(
-        `Progress update sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
-      );
-    } else {
-      // Log when clients exist but none for this user (helps with debugging)
-      this.logger.debug(
-        `No connected clients for user ${user_id}, backtest ${backtest_id}. ${totalClients} other client(s) connected.`
+        `Could not broadcast progress update (server still initializing): ${error.message}`
       );
     }
   }
