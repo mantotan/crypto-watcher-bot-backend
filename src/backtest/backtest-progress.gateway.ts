@@ -52,6 +52,10 @@ export class BacktestProgressGateway
   private redisRetryCount = 0;
   private readonly MAX_REDIS_RETRIES = 12; // Stop after 60 seconds (12 × 5s)
 
+  // Redis message handler (stored for cleanup)
+  // Signature for pSubscribe listener: (message, channel)
+  private messageHandler: ((message: string, channel: string) => void) | null = null;
+
   constructor(
     private redisService: RedisService,
     private prismaService: PrismaService,
@@ -164,11 +168,21 @@ export class BacktestProgressGateway
     if (this.isSubscribed) {
       try {
         const subscriber = this.redisService.getSubscriber();
-        await subscriber.pUnsubscribe(this.REDIS_CHANNEL_PATTERN);
-        this.isSubscribed = false;
-        this.logger.log(`Unsubscribed from Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
+
+        // Safety check: Only unsubscribe if client is still open
+        if (subscriber && subscriber.isOpen) {
+          // Unsubscribe from pattern (automatically removes the listener)
+          await subscriber.pUnsubscribe(this.REDIS_CHANNEL_PATTERN);
+          this.logger.log(`Unsubscribed from Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
+        } else {
+          this.logger.warn('Redis subscriber already closed, skipping unsubscribe');
+        }
       } catch (error) {
         this.logger.error(`Failed to unsubscribe from Redis: ${error.message}`);
+      } finally {
+        // Always clean up state, even if unsubscribe fails
+        this.isSubscribed = false;
+        this.messageHandler = null;
       }
     }
 
@@ -269,9 +283,20 @@ export class BacktestProgressGateway
 
       const subscriber = this.redisService.getSubscriber();
 
-      // Subscribe to pattern matching all task progress channels
-      await subscriber.pSubscribe(this.REDIS_CHANNEL_PATTERN, (message, channel) => {
+      // Create message handler for Redis v5 API
+      // Signature: (message: string, channel: string) => void
+      // Note: Redis v5 client automatically resubscribes on reconnection
+      this.messageHandler = (message: string, channel: string) => {
         try {
+          // Safety check: Ensure message is a string
+          if (typeof message !== 'string' || !message) {
+            this.logger.warn('Received invalid message type from Redis', {
+              channel,
+              messageType: typeof message,
+            });
+            return;
+          }
+
           // Parse message from Python worker (already in correct format)
           const progressData: ProgressData = JSON.parse(message);
 
@@ -291,7 +316,10 @@ export class BacktestProgressGateway
             error: error.stack,
           });
         }
-      });
+      };
+
+      // Subscribe to pattern with listener (Redis v5 API requires listener as 2nd param)
+      await subscriber.pSubscribe(this.REDIS_CHANNEL_PATTERN, this.messageHandler);
 
       this.isSubscribed = true;
       this.logger.log(`Subscribed to Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
