@@ -217,13 +217,14 @@ export class BacktestProgressGateway
     // Check every minute
     this.tokenExpirationChecker = setInterval(() => {
       // Safety check: ensure server and sockets are initialized
-      if (!this.server?.sockets?.sockets) {
+      // In a namespaced gateway, this.server IS the Namespace, so sockets are at this.server.sockets
+      if (!this.server?.sockets) {
         this.logger.debug('Token expiration checker: No sockets to check');
         return;
       }
 
       const now = Math.floor(Date.now() / 1000);
-      const sockets = this.server.sockets.sockets;
+      const sockets = this.server.sockets;
 
       let disconnectedCount = 0;
 
@@ -445,9 +446,10 @@ export class BacktestProgressGateway
     }
 
     // Try to access client sockets with defensive checks
-    // Socket.IO may not have initialized the sockets Map yet during startup
+    // Note: In a namespaced gateway, this.server IS the Namespace, not the full Server
+    // So we access sockets directly via this.server.sockets (which is the Map<SocketId, Socket>)
     try {
-      const socketsMap = this.server?.sockets?.sockets;
+      const socketsMap = this.server?.sockets;
 
       // If sockets Map doesn't exist yet, silently return (initialization phase)
       if (!socketsMap) {
