@@ -4,13 +4,39 @@ import { createClient, RedisClientType } from 'redis';
 // Redis keys for progress tracking
 const PROGRESS_HASH_KEY = 'backtest:progress:latest';
 
+/**
+ * Backtest task status enum
+ * Matches Python worker output
+ */
+export type BacktestStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/**
+ * Backtest progress step enum
+ * Structured progress steps from Python worker
+ */
+export type ProgressStep =
+  | 'initializing'          // 0-5%: Setting up backtest
+  | 'fetching_data'         // 5-10%: Loading OHLCV data
+  | 'detecting_patterns'    // 10-55%: Scanning for patterns
+  | 'sorting_patterns'      // 55-60%: Ordering patterns by date
+  | 'executing_trades'      // 60-90%: Running backtest simulation
+  | 'generating_results'    // 90-95%: Creating result summary
+  | 'finalizing'            // 95-99%: Final cleanup
+  | 'completed'             // 100%: Done
+  | 'failed';               // 0%: Error occurred
+
+/**
+ * Progress data structure from Python backtest worker
+ * Matches the exact format sent via Redis pub/sub
+ */
 export interface ProgressData {
-  task_id: string;
-  status: string;
-  progress_percentage: number;
-  current_step: string;
-  timestamp: string;
-  metadata: Record<string, any>;
+  backtest_id: string;                // Backtest task ID (renamed from task_id to match Python)
+  user_id: string;                    // User who owns this backtest task
+  status: BacktestStatus;             // Current status (structured enum)
+  progress_percentage: number;        // Progress 0-100 (decimal: 45.5)
+  current_step: ProgressStep;         // Current processing step (structured enum)
+  timestamp: string;                  // ISO 8601 UTC timestamp
+  metadata: Record<string, any>;      // Context-specific metadata
 }
 
 @Injectable()

@@ -286,13 +286,34 @@ export class BacktestController {
         data: {
           type: 'object',
           properties: {
-            task_id: { type: 'string' },
-            status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed'] },
-            progress_percentage: { type: 'number', example: 45.5 },
-            current_step: { type: 'string', example: 'detecting_patterns' },
-            timestamp: { type: 'string', format: 'date-time' },
+            backtest_id: { type: 'string', description: 'Backtest task ID' },
+            user_id: { type: 'string', description: 'User who owns this backtest' },
+            status: {
+              type: 'string',
+              enum: ['pending', 'running', 'completed', 'failed'],
+              description: 'Current backtest status',
+            },
+            progress_percentage: { type: 'number', example: 45.5, description: 'Progress 0-100 (decimal)' },
+            current_step: {
+              type: 'string',
+              example: 'detecting_patterns',
+              description: 'Current processing step',
+              enum: [
+                'initializing',
+                'fetching_data',
+                'detecting_patterns',
+                'sorting_patterns',
+                'executing_trades',
+                'generating_results',
+                'finalizing',
+                'completed',
+                'failed',
+              ],
+            },
+            timestamp: { type: 'string', format: 'date-time', description: 'ISO 8601 UTC timestamp' },
             metadata: {
               type: 'object',
+              description: 'Context-specific metadata (varies by processing step)',
               properties: {
                 current_symbol: { type: 'string', example: 'BTCUSDT' },
                 current_timeframe: { type: 'string', example: '4h' },
@@ -313,7 +334,11 @@ export class BacktestController {
     status: 401,
     description: 'Unauthorized',
   })
-  async getTaskProgress(@Param('taskId') taskId: string) {
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Task belongs to another user',
+  })
+  async getTaskProgress(@Request() req, @Param('taskId') taskId: string) {
     // Validate taskId format (basic security check)
     if (!taskId || typeof taskId !== 'string' || taskId.length > 100) {
       throw new NotFoundException('Invalid task ID format');
@@ -324,6 +349,14 @@ export class BacktestController {
 
       if (!progress) {
         throw new NotFoundException(`Progress for task ${taskId} not found or completed`);
+      }
+
+      // SECURITY: Verify user owns this backtest task
+      if (progress.user_id !== req.user.id) {
+        this.logger.warn(
+          `User ${req.user.id} attempted to access task ${taskId} owned by ${progress.user_id}`
+        );
+        throw new NotFoundException('Task not found or completed'); // Don't reveal it exists
       }
 
       return {
@@ -355,19 +388,39 @@ export class BacktestController {
         success: { type: 'boolean', example: true },
         data: {
           type: 'object',
+          description: 'Map of backtest_id to progress data',
           additionalProperties: {
             type: 'object',
             properties: {
-              task_id: { type: 'string' },
-              status: { type: 'string' },
-              progress_percentage: { type: 'number' },
-              current_step: { type: 'string' },
-              timestamp: { type: 'string' },
-              metadata: { type: 'object' },
+              backtest_id: { type: 'string', description: 'Backtest task ID' },
+              user_id: { type: 'string', description: 'User who owns this backtest' },
+              status: {
+                type: 'string',
+                enum: ['pending', 'running', 'completed', 'failed'],
+                description: 'Current backtest status',
+              },
+              progress_percentage: { type: 'number', description: 'Progress 0-100 (decimal)' },
+              current_step: {
+                type: 'string',
+                description: 'Current processing step',
+                enum: [
+                  'initializing',
+                  'fetching_data',
+                  'detecting_patterns',
+                  'sorting_patterns',
+                  'executing_trades',
+                  'generating_results',
+                  'finalizing',
+                  'completed',
+                  'failed',
+                ],
+              },
+              timestamp: { type: 'string', format: 'date-time', description: 'ISO 8601 UTC timestamp' },
+              metadata: { type: 'object', description: 'Context-specific metadata' },
             },
           },
         },
-        count: { type: 'number', example: 3 },
+        count: { type: 'number', example: 3, description: 'Number of active backtests' },
       },
     },
   })
@@ -375,14 +428,30 @@ export class BacktestController {
     status: 401,
     description: 'Unauthorized',
   })
-  async getAllProgress() {
+  async getAllProgress(@Request() req) {
     try {
       const allProgress = await this.redisService.getAllTasksProgress();
 
+      // SECURITY: Filter to only return tasks owned by the authenticated user
+      const userProgress: Record<string, any> = {};
+      let filteredCount = 0;
+
+      for (const [backtestId, progress] of Object.entries(allProgress)) {
+        // Skip tasks without user_id (stale data) or not owned by current user
+        if (progress.user_id === req.user.id) {
+          userProgress[backtestId] = progress;
+          filteredCount++;
+        }
+      }
+
+      this.logger.debug(
+        `Returning ${filteredCount} active tasks for user ${req.user.id} (filtered from ${Object.keys(allProgress).length} total)`
+      );
+
       return {
         success: true,
-        data: allProgress,
-        count: Object.keys(allProgress).length,
+        data: userProgress,
+        count: filteredCount,
       };
     } catch (error) {
       this.logger.error('Error fetching all progress:', error);

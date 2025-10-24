@@ -350,13 +350,33 @@ const socket = io('http://localhost:3733/backtest-progress', {
 });
 
 socket.on('progress', (data) => {
-  console.log(`Progress: ${data.progress_percentage}%`);
+  console.log(`Progress: ${data.progress_percentage}% - ${data.current_step}`);
+  console.log(`Status: ${data.status}`);
+
+  // Progress data structure:
+  // {
+  //   backtest_id: string,          // Backtest task ID
+  //   user_id: string,              // Owner user ID
+  //   status: 'pending' | 'running' | 'completed' | 'failed',
+  //   progress_percentage: number,  // 0-100 (decimal: 45.5)
+  //   current_step: string,         // 'initializing' | 'fetching_data' | 'detecting_patterns' | ...
+  //   timestamp: string,            // ISO 8601 UTC
+  //   metadata: {                   // Context-specific fields
+  //     current_symbol?: string,
+  //     current_timeframe?: string,
+  //     total_patterns_found?: number,
+  //     estimated_completion?: string
+  //   }
+  // }
 });
 
 socket.emit('subscribe', taskId);
 ```
 
 **Authentication**: HTTP-only cookies (same as REST API) - user must be logged in via `/auth/login`
+
+**Progress Steps**: 'initializing' (0-5%) → 'fetching_data' (5-10%) → 'detecting_patterns' (10-55%) → 'sorting_patterns' (55-60%) → 'executing_trades' (60-90%) → 'generating_results' (90-95%) → 'finalizing' (95-99%) → 'completed' (100%)
+
 **Events**: See Swagger UI for complete WebSocket API
 
 ---

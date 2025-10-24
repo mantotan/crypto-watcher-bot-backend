@@ -9,7 +9,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Injectable, Logger, OnModuleDestroy, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RedisService, ProgressData } from '../redis/redis.service';
+import { RedisService, ProgressData, BacktestStatus, ProgressStep } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 
@@ -45,16 +45,12 @@ export class BacktestProgressGateway
 
   private readonly logger = new Logger(BacktestProgressGateway.name);
   private isSubscribed = false;
-  private readonly REDIS_CHANNEL = 'backtest:progress:all';
+  private readonly REDIS_CHANNEL_PATTERN = 'backtest:progress:*'; // Pattern to match all task channels
   private tokenExpirationChecker: NodeJS.Timeout | null = null;
 
   // Redis retry management
   private redisRetryCount = 0;
   private readonly MAX_REDIS_RETRIES = 12; // Stop after 60 seconds (12 × 5s)
-
-  // Cache for task ownership (taskId -> userId, 5 minute TTL)
-  private ownershipCache = new Map<string, { userId: string; expiresAt: number }>();
-  private readonly OWNERSHIP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     private redisService: RedisService,
@@ -164,16 +160,13 @@ export class BacktestProgressGateway
       this.logger.log('Token expiration checker stopped');
     }
 
-    // Clear ownership cache
-    this.ownershipCache.clear();
-
-    // Unsubscribe from Redis channel to prevent memory leaks
+    // Unsubscribe from Redis pattern to prevent memory leaks
     if (this.isSubscribed) {
       try {
         const subscriber = this.redisService.getSubscriber();
-        await subscriber.unsubscribe(this.REDIS_CHANNEL);
+        await subscriber.pUnsubscribe(this.REDIS_CHANNEL_PATTERN);
         this.isSubscribed = false;
-        this.logger.log(`Unsubscribed from Redis channel: ${this.REDIS_CHANNEL}`);
+        this.logger.log(`Unsubscribed from Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
       } catch (error) {
         this.logger.error(`Failed to unsubscribe from Redis: ${error.message}`);
       }
@@ -236,9 +229,6 @@ export class BacktestProgressGateway
       if (disconnectedCount > 0) {
         this.logger.log(`Disconnected ${disconnectedCount} clients with expired tokens`);
       }
-
-      // Clean expired ownership cache entries
-      this.cleanOwnershipCache();
     }, 60000); // Check every 60 seconds
 
     this.logger.log('Token expiration checker started (checks every 60s)');
@@ -279,25 +269,32 @@ export class BacktestProgressGateway
 
       const subscriber = this.redisService.getSubscriber();
 
-      // Subscribe to global progress channel (all tasks)
-      await subscriber.subscribe(this.REDIS_CHANNEL, (message) => {
+      // Subscribe to pattern matching all task progress channels
+      await subscriber.pSubscribe(this.REDIS_CHANNEL_PATTERN, (message, channel) => {
         try {
+          // Parse message from Python worker (already in correct format)
           const progressData: ProgressData = JSON.parse(message);
 
           // Validate progress data structure
           if (!this.isValidProgressData(progressData)) {
-            this.logger.warn('Received invalid progress data from Redis');
+            this.logger.warn('Received invalid progress data from Python worker', {
+              channel,
+              message: message.substring(0, 200), // Log first 200 chars
+            });
             return;
           }
 
           this.handleProgressUpdate(progressData);
         } catch (error) {
-          this.logger.error(`Failed to parse progress message: ${error.message}`);
+          this.logger.error(`Failed to parse progress message from Python worker: ${error.message}`, {
+            channel,
+            error: error.stack,
+          });
         }
       });
 
       this.isSubscribed = true;
-      this.logger.log(`Subscribed to Redis channel: ${this.REDIS_CHANNEL}`);
+      this.logger.log(`Subscribed to Redis pattern: ${this.REDIS_CHANNEL_PATTERN}`);
     } catch (error) {
       // Check if we've exceeded retry limit
       if (this.redisRetryCount >= this.MAX_REDIS_RETRIES) {
@@ -320,17 +317,60 @@ export class BacktestProgressGateway
   }
 
   /**
-   * Validate progress data structure
+   * Validate progress data structure from Python worker
+   * Ensures all required fields are present and have correct types/values
+   *
+   * NOTE: transformPythonData() removed - Python now sends data in correct format directly
    */
   private isValidProgressData(data: any): data is ProgressData {
-    return (
+    // Valid enum values (must match Python worker output)
+    const validStatuses: BacktestStatus[] = ['pending', 'running', 'completed', 'failed'];
+    const validSteps: ProgressStep[] = [
+      'initializing',
+      'fetching_data',
+      'detecting_patterns',
+      'sorting_patterns',
+      'executing_trades',
+      'generating_results',
+      'finalizing',
+      'completed',
+      'failed',
+    ];
+
+    // Validate structure and types
+    const isValid =
       data &&
       typeof data === 'object' &&
-      typeof data.task_id === 'string' &&
+      typeof data.backtest_id === 'string' &&
+      data.backtest_id.length > 0 &&
+      typeof data.user_id === 'string' &&
+      data.user_id.length > 0 &&
       typeof data.status === 'string' &&
+      validStatuses.includes(data.status as BacktestStatus) &&
       typeof data.progress_percentage === 'number' &&
-      typeof data.current_step === 'string'
-    );
+      data.progress_percentage >= 0 &&
+      data.progress_percentage <= 100 &&
+      typeof data.current_step === 'string' &&
+      validSteps.includes(data.current_step as ProgressStep) &&
+      typeof data.timestamp === 'string';
+
+    if (!isValid) {
+      this.logger.error('Invalid progress data from Python worker', {
+        data,
+        validation: {
+          hasBacktestId: typeof data?.backtest_id === 'string',
+          hasUserId: typeof data?.user_id === 'string',
+          hasValidStatus: validStatuses.includes(data?.status),
+          hasValidStep: validSteps.includes(data?.current_step),
+          hasValidProgress:
+            typeof data?.progress_percentage === 'number' &&
+            data?.progress_percentage >= 0 &&
+            data?.progress_percentage <= 100,
+        },
+      });
+    }
+
+    return isValid;
   }
 
   /**
@@ -348,6 +388,7 @@ export class BacktestProgressGateway
 
   /**
    * Handle progress update from Redis
+   * Emits ONLY to authenticated users who own this task (filtered by user_id)
    */
   private handleProgressUpdate(progressData: ProgressData) {
     // Safety check: ensure server is initialized
@@ -356,17 +397,39 @@ export class BacktestProgressGateway
       return;
     }
 
-    const { task_id } = progressData;
+    const { backtest_id, user_id } = progressData;
 
-    // Emit to clients subscribed to this specific task
-    this.server.to(`task:${task_id}`).emit('progress', progressData);
+    // SECURITY: Defensive check for missing user_id
+    // This should never happen due to isValidProgressData() checks,
+    // but we add defense in depth to prevent accidental leaks
+    if (!user_id || typeof user_id !== 'string') {
+      this.logger.error(
+        'CRITICAL: Progress data missing user_id! This should never happen. Dropping update to prevent security leak.',
+        { backtest_id, progressData }
+      );
+      return;
+    }
 
-    // Also broadcast to global listeners (dashboard)
-    this.server.emit('global_progress', progressData);
+    // Emit ONLY to authenticated users who own this backtest
+    let sentCount = 0;
+    this.server.sockets.sockets.forEach((socket) => {
+      if (socket.data.user?.id === user_id) {
+        socket.emit('progress', progressData);
+        sentCount++;
+      }
+    });
 
-    this.logger.debug(
-      `Progress update: ${task_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
-    );
+    if (sentCount > 0) {
+      this.logger.debug(
+        `Progress update sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
+      );
+    } else {
+      // Log when no clients found (user not connected or logged out)
+      // This is normal behavior, not an error - helps with debugging
+      this.logger.debug(
+        `No connected clients for user ${user_id}, backtest ${backtest_id}. User may have disconnected or is not subscribed.`
+      );
+    }
   }
 
   /**
@@ -386,12 +449,30 @@ export class BacktestProgressGateway
     // Send only user's active tasks on connection (for dashboard)
     try {
       const allProgress = await this.redisService.getAllTasksProgress();
-      const userTasks = await this.filterTasksByUser(allProgress, user.id);
+
+      // Filter tasks by user_id (in-memory filtering, no DB query needed)
+      const userTasks: Record<string, ProgressData> = {};
+      let skippedCount = 0;
+
+      for (const [taskId, progress] of Object.entries(allProgress)) {
+        // SECURITY: Skip tasks without user_id (old cached data or corrupted)
+        if (!progress.user_id) {
+          this.logger.warn(
+            `Task ${taskId} in Redis cache has no user_id! This may be stale data from before user_id was added. Consider clearing Redis cache.`
+          );
+          skippedCount++;
+          continue;
+        }
+
+        if (progress.user_id === user.id) {
+          userTasks[taskId] = progress;
+        }
+      }
 
       client.emit('all_tasks', userTasks);
 
       this.logger.debug(
-        `Sent ${Object.keys(userTasks).length} tasks to user ${user.email}`,
+        `Sent ${Object.keys(userTasks).length} tasks to user ${user.email}${skippedCount > 0 ? ` (skipped ${skippedCount} tasks without user_id)` : ''}`,
       );
     } catch (error) {
       this.logger.error(`Failed to send tasks to client: ${error.message}`);
@@ -407,110 +488,6 @@ export class BacktestProgressGateway
   }
 
   /**
-   * Filter tasks to only include those belonging to the user
-   *
-   * PERFORMANCE NOTE: Instead of querying "WHERE id IN (all task IDs from Redis)",
-   * we query "user's tasks" then check which are in Redis. This is much faster
-   * because:
-   * 1. Users typically have < 100 active tasks (vs potentially 10,000+ total tasks)
-   * 2. Query is indexed on user_id (faster than large IN clause)
-   * 3. No risk of hitting database query length limits
-   * 4. Automatically filters to in-progress tasks only
-   */
-  private async filterTasksByUser(
-    allProgress: Record<string, ProgressData>,
-    userId: string,
-  ): Promise<Record<string, ProgressData>> {
-    // Reverse the query: get user's tasks first, then check Redis
-    // Only fetch tasks that are likely to have progress (QUEUED or RUNNING)
-    const userTasks = await this.prismaService.backtestTask.findMany({
-      where: {
-        user_id: userId,
-        deleted_at: null,
-        // Only check tasks in progress (completed tasks won't be in Redis)
-        status: { in: ['QUEUED', 'RUNNING'] },
-      },
-      select: { id: true },
-    });
-
-    // Build filtered result by checking which user tasks have progress in Redis
-    const filtered: Record<string, ProgressData> = {};
-    for (const task of userTasks) {
-      const progress = allProgress[task.id];
-      if (progress) {
-        filtered[task.id] = progress;
-      }
-    }
-
-    return filtered;
-  }
-
-  /**
-   * Verify that a task belongs to the authenticated user
-   * Uses cache to reduce database queries (5 minute TTL)
-   */
-  private async verifyTaskOwnership(taskId: string, userId: string): Promise<boolean> {
-    try {
-      // Check cache first
-      const cached = this.ownershipCache.get(taskId);
-      const now = Date.now();
-
-      if (cached && cached.expiresAt > now) {
-        // Cache hit
-        return cached.userId === userId;
-      }
-
-      // Cache miss or expired - query database
-      const task = await this.prismaService.backtestTask.findFirst({
-        where: {
-          id: taskId,
-          deleted_at: null,
-        },
-        select: { id: true, user_id: true },
-      });
-
-      if (!task) {
-        // Task doesn't exist, cache negative result for 1 minute
-        this.ownershipCache.set(taskId, {
-          userId: '__nonexistent__',
-          expiresAt: now + 60000, // 1 minute
-        });
-        return false;
-      }
-
-      // Cache the result
-      this.ownershipCache.set(taskId, {
-        userId: task.user_id,
-        expiresAt: now + this.OWNERSHIP_CACHE_TTL,
-      });
-
-      return task.user_id === userId;
-    } catch (error) {
-      this.logger.error(`Failed to verify task ownership: ${error.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Periodically clean expired cache entries
-   */
-  private cleanOwnershipCache() {
-    const now = Date.now();
-    let cleanedCount = 0;
-
-    for (const [taskId, entry] of this.ownershipCache.entries()) {
-      if (entry.expiresAt < now) {
-        this.ownershipCache.delete(taskId);
-        cleanedCount++;
-      }
-    }
-
-    if (cleanedCount > 0) {
-      this.logger.debug(`Cleaned ${cleanedCount} expired ownership cache entries`);
-    }
-  }
-
-  /**
    * Handle client disconnection
    */
   handleDisconnect(client: Socket) {
@@ -520,6 +497,8 @@ export class BacktestProgressGateway
   /**
    * Client subscribes to a specific task's progress
    * Requires JWT authentication via WsJwtGuard
+   *
+   * Note: Authorization happens via user_id filtering in handleProgressUpdate
    */
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('subscribe')
@@ -541,43 +520,61 @@ export class BacktestProgressGateway
       return;
     }
 
-    // Verify task ownership
-    const hasAccess = await this.verifyTaskOwnership(taskId, user.id);
-
-    if (!hasAccess) {
-      this.logger.warn(
-        `User ${user.email} attempted to access unauthorized task ${taskId}`,
-      );
-      client.emit('error', { message: 'Access denied: Task not found or unauthorized' });
-      return;
-    }
-
-    // Join room for this specific task
-    client.join(`task:${taskId}`);
     this.logger.log(`User ${user.email} subscribed to task ${taskId}`);
 
-    // Send latest cached progress immediately
+    // Send latest cached progress immediately (if available and owned by user)
     try {
       const cachedProgress = await this.redisService.getTaskProgress(taskId);
 
       if (cachedProgress) {
-        client.emit('progress', cachedProgress);
-        this.logger.debug(
-          `Sent cached progress for task ${taskId}: ${cachedProgress.progress_percentage}%`,
-        );
+        // SECURITY: Check if cached data has user_id (defensive programming)
+        if (!cachedProgress.user_id) {
+          this.logger.error(
+            `Cached progress for task ${taskId} has no user_id! This is a data integrity issue. Cached data may be stale.`,
+            { cachedProgress }
+          );
+          client.emit('error', {
+            message: 'Progress data unavailable. Please try again later.',
+            code: 'DATA_INTEGRITY_ERROR',
+          });
+          return;
+        }
+
+        // Verify user owns this task before sending cached data
+        if (cachedProgress.user_id === user.id) {
+          client.emit('progress', cachedProgress);
+          this.logger.debug(
+            `Sent cached progress for task ${taskId}: ${cachedProgress.progress_percentage}%`,
+          );
+        } else {
+          // User doesn't own this task
+          this.logger.warn(
+            `User ${user.email} attempted to access task ${taskId} owned by user ${cachedProgress.user_id}`,
+          );
+          client.emit('error', {
+            message: 'Access denied: Task not found or unauthorized',
+            code: 'UNAUTHORIZED_ACCESS',
+          });
+        }
       } else {
         // Send a message indicating no progress available yet
-        client.emit('no_progress', { task_id: taskId, message: 'No progress available yet' });
-        this.logger.debug(`No cached progress for task ${taskId}`);
+        client.emit('no_progress', { backtest_id: taskId, message: 'No progress available yet' });
+        this.logger.debug(`No cached progress for backtest ${taskId}`);
       }
     } catch (error) {
       this.logger.error(`Failed to get cached progress: ${error.message}`);
-      client.emit('error', { message: 'Failed to retrieve progress' });
+      client.emit('error', {
+        message: 'Failed to retrieve progress',
+        code: 'REDIS_ERROR',
+        details: error.message,
+      });
     }
   }
 
   /**
    * Client unsubscribes from a specific task's progress
+   *
+   * Note: No room management needed with user_id filtering
    */
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('unsubscribe')
@@ -594,13 +591,13 @@ export class BacktestProgressGateway
       return;
     }
 
-    client.leave(`task:${taskId}`);
+    // No room management needed - just log for tracking
     this.logger.log(`User ${user.email} unsubscribed from task ${taskId}`);
   }
 
   /**
    * One-time progress fetch (alternative to subscribe)
-   * Requires ownership verification
+   * Requires JWT authentication and user_id match
    */
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('get_progress')
@@ -619,28 +616,45 @@ export class BacktestProgressGateway
       return;
     }
 
-    // Verify task ownership
-    const hasAccess = await this.verifyTaskOwnership(taskId, user.id);
-
-    if (!hasAccess) {
-      this.logger.warn(
-        `User ${user.email} attempted to fetch unauthorized task ${taskId}`,
-      );
-      client.emit('error', { message: 'Access denied: Task not found or unauthorized' });
-      return;
-    }
-
     try {
       const progress = await this.redisService.getTaskProgress(taskId);
 
       if (progress) {
-        client.emit('progress', progress);
+        // SECURITY: Check if cached data has user_id (defensive programming)
+        if (!progress.user_id) {
+          this.logger.error(
+            `Cached progress for task ${taskId} has no user_id! This is a data integrity issue.`,
+            { progress }
+          );
+          client.emit('error', {
+            message: 'Progress data unavailable. Please try again later.',
+            code: 'DATA_INTEGRITY_ERROR',
+          });
+          return;
+        }
+
+        // Verify user owns this task
+        if (progress.user_id === user.id) {
+          client.emit('progress', progress);
+        } else {
+          this.logger.warn(
+            `User ${user.email} attempted to fetch task ${taskId} owned by user ${progress.user_id}`,
+          );
+          client.emit('error', {
+            message: 'Access denied: Task not found or unauthorized',
+            code: 'UNAUTHORIZED_ACCESS',
+          });
+        }
       } else {
-        client.emit('no_progress', { task_id: taskId, message: 'No progress available' });
+        client.emit('no_progress', { backtest_id: taskId, message: 'No progress available' });
       }
     } catch (error) {
-      this.logger.error(`Failed to fetch progress for task ${taskId}: ${error.message}`);
-      client.emit('error', { message: 'Failed to fetch progress' });
+      this.logger.error(`Failed to fetch progress for backtest ${taskId}: ${error.message}`);
+      client.emit('error', {
+        message: 'Failed to fetch progress',
+        code: 'REDIS_ERROR',
+        details: error.message,
+      });
     }
   }
 }

@@ -24,12 +24,14 @@ Claude Code guidance for this NestJS-based crypto trading bot API backend. Handl
 **Backtest System** (`src/backtest/`)
 - Redis queue → Python worker → PostgreSQL results, supports multi-symbol/timeframe runs
 - **Progress Tracking:** Real-time WebSocket updates + HTTP polling fallback
-  - **Authentication:** JWT required (WebSocket via `auth.token`, HTTP via Bearer token)
-  - **Authorization:** Task ownership verified (users only see their own tasks)
-  - WebSocket Gateway: `BacktestProgressGateway` subscribes to Redis Pub/Sub (`backtest:progress:all`)
+  - **Authentication:** JWT required (WebSocket via HTTP-only cookies, HTTP via Bearer token)
+  - **Authorization:** Task ownership verified via user_id filtering (users only see their own tasks)
+  - WebSocket Gateway: `BacktestProgressGateway` pattern-subscribes to Redis Pub/Sub (`backtest:progress:*`)
   - HTTP endpoints: `GET /backtest/tasks/:taskId/progress`, `GET /backtest/progress/all`
-  - Progress data: task_id, status, progress_percentage (0-100), current_step, metadata
-  - Frontend connects via Socket.IO namespace `/backtest-progress` with JWT token
+  - Progress data: backtest_id, user_id, status (enum), progress_percentage (0-100 decimal), current_step (enum), timestamp, metadata
+  - Status values: 'pending' | 'running' | 'completed' | 'failed'
+  - Step values: 'initializing' | 'fetching_data' | 'detecting_patterns' | 'sorting_patterns' | 'executing_trades' | 'generating_results' | 'finalizing' | 'completed' | 'failed'
+  - Frontend connects via Socket.IO namespace `/backtest-progress` with HTTP-only cookies
 
 **Data Services**
 - PrismaService: PostgreSQL ORM | RedisService: Queue mgmt + Pub/Sub (2 clients) | GraphQLService: Chart data | EmailService: Lark/Feishu SMTP
@@ -121,7 +123,20 @@ socket.emit('subscribe', 'task-abc-123');
 // Receive updates
 socket.on('progress', (data) => {
   console.log(`${data.progress_percentage}% - ${data.current_step}`);
-  // { task_id, status, progress_percentage, current_step, timestamp, metadata }
+  // {
+  //   backtest_id: string,
+  //   user_id: string,
+  //   status: 'pending' | 'running' | 'completed' | 'failed',
+  //   progress_percentage: number,  // Decimal: 45.5
+  //   current_step: 'initializing' | 'fetching_data' | 'detecting_patterns' | ...,
+  //   timestamp: string,  // ISO 8601 UTC
+  //   metadata: {
+  //     current_symbol?: string,
+  //     current_timeframe?: string,
+  //     total_patterns_found?: number,
+  //     estimated_completion?: string
+  //   }
+  // }
 });
 
 // Global dashboard (all tasks)
@@ -141,9 +156,11 @@ GET /backtest/progress/all
 ```
 
 **Backend Architecture:**
-- Python worker publishes to Redis Pub/Sub: `PUBLISH backtest:progress:all {json}`
-- Python worker caches to Redis hash: `HSET backtest:progress:latest {task_id} {json}`
-- NestJS `BacktestProgressGateway` subscribes to pub/sub, forwards to Socket.IO clients
+- Python worker publishes to Redis Pub/Sub: `PUBLISH backtest:progress:all {json}` (global channel)
+- Python worker caches to Redis hash: `HSET backtest:progress:latest {backtest_id} {json}`
+- NestJS `BacktestProgressGateway` pattern-subscribes via `PSUBSCRIBE backtest:progress:*`, parses JSON directly
+- User authorization: Messages filtered by user_id (users only receive updates for their own backtests)
+- Data format: Python sends structured format with backtest_id, user_id, status (enum), progress_percentage (decimal), current_step (enum)
 - RedisService uses 2 clients: main (commands) + subscriber (pub/sub, dedicated connection required)
 
 ## Security
