@@ -217,18 +217,18 @@ export class BacktestProgressGateway
     // Check every minute
     this.tokenExpirationChecker = setInterval(() => {
       // Safety check: ensure server and sockets are initialized
-      // In a namespaced gateway, this.server IS the Namespace, so sockets are at this.server.sockets
-      if (!this.server?.sockets) {
+      // Access the sockets Map (TypeScript types don't expose this correctly, so we cast)
+      const socketsMap = (this.server as any)?.sockets as Map<string, Socket> | undefined;
+
+      if (!socketsMap || !(socketsMap instanceof Map)) {
         this.logger.debug('Token expiration checker: No sockets to check');
         return;
       }
 
       const now = Math.floor(Date.now() / 1000);
-      const sockets = this.server.sockets;
-
       let disconnectedCount = 0;
 
-      sockets.forEach((socket) => {
+      socketsMap.forEach((socket) => {
         const tokenExp = socket.data.tokenExp;
         const user = socket.data.user;
 
@@ -446,13 +446,14 @@ export class BacktestProgressGateway
     }
 
     // Try to access client sockets with defensive checks
-    // Note: In a namespaced gateway, this.server IS the Namespace, not the full Server
-    // So we access sockets directly via this.server.sockets (which is the Map<SocketId, Socket>)
+    // Note: In a namespaced gateway, this.server IS the Namespace
+    // Access sockets via the internal sockets Map (cast to any to bypass type issues)
     try {
-      const socketsMap = this.server?.sockets;
+      // Access the sockets Map (TypeScript types don't expose this correctly, so we cast)
+      const socketsMap = (this.server as any)?.sockets as Map<string, Socket> | undefined;
 
       // If sockets Map doesn't exist yet, silently return (initialization phase)
-      if (!socketsMap) {
+      if (!socketsMap || !(socketsMap instanceof Map)) {
         this.logger.warn('⚠️ Sockets Map not initialized, skipping progress update');
         return;
       }
