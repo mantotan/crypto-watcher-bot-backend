@@ -13,6 +13,12 @@ export type BacktestStatus = 'pending' | 'running' | 'completed' | 'failed';
 /**
  * Backtest progress step enum
  * Structured progress steps from Python worker
+ *
+ * Note: Python worker may send enhanced formats with additional details:
+ * - "executing_trades:_X/Y" (includes current/total trade count)
+ * - "completed!" (includes exclamation mark)
+ * The validation logic extracts the base step for validation while preserving
+ * the original format for frontend display.
  */
 export type ProgressStep =
   | 'initializing'          // 0-5%: Setting up backtest
@@ -23,7 +29,8 @@ export type ProgressStep =
   | 'generating_results'    // 90-95%: Creating result summary
   | 'finalizing'            // 95-99%: Final cleanup
   | 'completed'             // 100%: Done
-  | 'failed';               // 0%: Error occurred
+  | 'failed'                // 0%: Error occurred
+  | string;                 // Allow enhanced formats from Python worker
 
 /**
  * Progress data structure from Python backtest worker

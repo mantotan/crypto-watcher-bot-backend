@@ -317,15 +317,41 @@ export class BacktestProgressGateway
   }
 
   /**
+   * Extract base step from enhanced Python worker format
+   * Examples:
+   * - "executing_trades:_431/505" → "executing_trades"
+   * - "completed!" → "completed"
+   * - "generating_results" → "generating_results" (unchanged)
+   */
+  private extractBaseStep(step: string): string {
+    if (!step || typeof step !== 'string') {
+      return '';
+    }
+
+    // Remove exclamation marks
+    let baseStep = step.replace(/!/g, '').trim();
+
+    // Extract base step before colon (for "executing_trades:_X/Y" format)
+    const colonIndex = baseStep.indexOf(':');
+    if (colonIndex !== -1) {
+      baseStep = baseStep.substring(0, colonIndex).trim();
+    }
+
+    return baseStep;
+  }
+
+  /**
    * Validate progress data structure from Python worker
    * Ensures all required fields are present and have correct types/values
    *
-   * NOTE: transformPythonData() removed - Python now sends data in correct format directly
+   * NOTE: Python worker may send enhanced step formats with additional details.
+   * This validator extracts the base step for validation while preserving the
+   * original format for frontend display.
    */
   private isValidProgressData(data: any): data is ProgressData {
     // Valid enum values (must match Python worker output)
     const validStatuses: BacktestStatus[] = ['pending', 'running', 'completed', 'failed'];
-    const validSteps: ProgressStep[] = [
+    const validBaseSteps: string[] = [
       'initializing',
       'fetching_data',
       'detecting_patterns',
@@ -336,6 +362,9 @@ export class BacktestProgressGateway
       'completed',
       'failed',
     ];
+
+    // Extract base step from enhanced format for validation
+    const baseStep = this.extractBaseStep(data?.current_step);
 
     // Validate structure and types
     const isValid =
@@ -351,7 +380,7 @@ export class BacktestProgressGateway
       data.progress_percentage >= 0 &&
       data.progress_percentage <= 100 &&
       typeof data.current_step === 'string' &&
-      validSteps.includes(data.current_step as ProgressStep) &&
+      validBaseSteps.includes(baseStep) &&
       typeof data.timestamp === 'string';
 
     if (!isValid) {
@@ -361,7 +390,9 @@ export class BacktestProgressGateway
           hasBacktestId: typeof data?.backtest_id === 'string',
           hasUserId: typeof data?.user_id === 'string',
           hasValidStatus: validStatuses.includes(data?.status),
-          hasValidStep: validSteps.includes(data?.current_step),
+          hasValidStep: validBaseSteps.includes(baseStep),
+          currentStep: data?.current_step,
+          extractedBaseStep: baseStep,
           hasValidProgress:
             typeof data?.progress_percentage === 'number' &&
             data?.progress_percentage >= 0 &&
@@ -393,7 +424,19 @@ export class BacktestProgressGateway
   private handleProgressUpdate(progressData: ProgressData) {
     // Safety check: ensure server is initialized
     if (!this.server) {
-      this.logger.warn('Progress update received but server not initialized yet');
+      this.logger.debug('Progress update received but WebSocket server not initialized yet');
+      return;
+    }
+
+    // Safety check: ensure server.sockets exists (Socket.IO namespace)
+    if (!this.server.sockets) {
+      this.logger.debug('Progress update received but WebSocket namespace not ready');
+      return;
+    }
+
+    // Safety check: ensure server.sockets.sockets exists (client Map)
+    if (!this.server.sockets.sockets) {
+      this.logger.debug('Progress update received but WebSocket client Map not available');
       return;
     }
 
@@ -407,6 +450,14 @@ export class BacktestProgressGateway
         'CRITICAL: Progress data missing user_id! This should never happen. Dropping update to prevent security leak.',
         { backtest_id, progressData }
       );
+      return;
+    }
+
+    // Check if there are any connected clients at all
+    const totalClients = this.server.sockets.sockets.size;
+    if (totalClients === 0) {
+      // This is normal - backtest may run when user is not connected
+      // No need to log every update when no clients are connected
       return;
     }
 
@@ -424,10 +475,9 @@ export class BacktestProgressGateway
         `Progress update sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
       );
     } else {
-      // Log when no clients found (user not connected or logged out)
-      // This is normal behavior, not an error - helps with debugging
+      // Log when clients exist but none for this user (helps with debugging)
       this.logger.debug(
-        `No connected clients for user ${user_id}, backtest ${backtest_id}. User may have disconnected or is not subscribed.`
+        `No connected clients for user ${user_id}, backtest ${backtest_id}. ${totalClients} other client(s) connected.`
       );
     }
   }
