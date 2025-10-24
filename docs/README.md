@@ -1,271 +1,386 @@
 # Backend API Documentation
 
-This directory contains comprehensive documentation for the Crypto Watcher Trading Bot API.
+This directory contains the API documentation for the Crypto Watcher Trading Bot Backend.
 
 ---
 
-## 📚 Documentation Index
-
-### Backtest Progress Tracking Feature (NEW - 2025-10-23) ✅ PRODUCTION READY
-
-| Document | Description | Audience |
-|----------|-------------|----------|
-| **[Production Ready Summary](./PRODUCTION_READY_SUMMARY.md)** | ✅ **START HERE** - Final status, all fixes applied, deployment checklist | Everyone |
-| **[Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)** | Complete WebSocket + HTTP integration guide with React examples | Frontend developers |
-| **[Progress Tracking Summary](./PROGRESS_TRACKING_SUMMARY.md)** | Quick reference with data structures and common issues | Frontend/Backend developers |
-| **[Security Audit Report](./SECURITY_AUDIT_REPORT.md)** | Comprehensive security audit with all issues found and fixed | Backend developers, Security team |
-| **[Final Audit Report](./FINAL_AUDIT_REPORT.md)** | Long-term stability audit with scalability analysis | Backend developers, DevOps |
-
-### Portfolio Performance Feature (2025-10-23)
-
-| Document | Description | Audience |
-|----------|-------------|----------|
-| **[Portfolio Performance API](./PORTFOLIO_PERFORMANCE_API.md)** | Complete API documentation with examples, use cases, and integration guide | Frontend developers, API consumers |
-| **[Quick Reference](./PORTFOLIO_PERFORMANCE_QUICK_REFERENCE.md)** | TL;DR version with code snippets and common patterns | Developers who want quick answers |
-| **[Changelog](./CHANGELOG_PORTFOLIO_PERFORMANCE.md)** | Implementation details, bug fixes, and technical changes | Backend developers, DevOps |
-
-### API Specification
+## 📚 API Specification
 
 | Document | Description | Use Case |
 |----------|-------------|----------|
-| **[openapi.json](./openapi.json)** | OpenAPI 3.0 specification (JSON) | API clients, code generation |
-| **[openapi.yaml](./openapi.yaml)** | OpenAPI 3.0 specification (YAML) | Human-readable, Postman import |
+| **[openapi.json](./openapi.json)** | OpenAPI 3.0 specification (JSON) | API clients, code generation, Postman import |
+| **[openapi.yaml](./openapi.yaml)** | OpenAPI 3.0 specification (YAML) | Human-readable, documentation |
 
 ---
 
 ## 🚀 Quick Links
 
-### For Frontend Developers
+### Interactive API Documentation
 
-#### Implementing Progress Tracking?
-1. Read the [Progress Tracking Summary](./PROGRESS_TRACKING_SUMMARY.md) (5 min read)
-2. Install `socket.io-client`
-3. Copy React hooks and components from [Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)
-4. Test in browser console
+When the backend is running, you can access the interactive Swagger UI:
 
-#### Working with Portfolio Performance?
-1. Read the [Quick Reference](./PORTFOLIO_PERFORMANCE_QUICK_REFERENCE.md) (5 min read)
-2. Copy the TypeScript types and API client code
-3. See integration examples for your framework
+**Swagger UI**: http://localhost:3733/api/docs
 
-**Need full details?**
-- Progress Tracking: [Frontend Integration Guide](./FRONTEND_INTEGRATION_GUIDE.md)
-- Portfolio Performance: [Full API Documentation](./PORTFOLIO_PERFORMANCE_API.md)
-- All Endpoints: [Interactive Swagger UI](http://localhost:3733/api/docs)
-
-### For Backend Developers
-
-**Reviewing the implementation?** See the [Changelog](./CHANGELOG_PORTFOLIO_PERFORMANCE.md):
-- Files changed and code diffs
-- Bug fixes applied
-- Performance characteristics
-- Testing checklist
-
----
-
-## 🎯 Feature Overviews
-
-### Backtest Progress Tracking (Real-time)
-
-**What It Does**: Provides real-time progress updates (0% → 100%) for backtest tasks via WebSocket or HTTP polling.
-
-**Key Endpoints**:
-```
-WebSocket: ws://localhost:3733/backtest-progress
-HTTP: GET /backtest/tasks/:taskId/progress
-HTTP: GET /backtest/progress/all
-```
-
-**Use Cases**:
-1. **Real-time Progress Bars** - Show live backtest progress
-2. **Status Monitoring** - Track multiple backtests simultaneously
-3. **Dashboard Views** - Display all active backtests
-4. **ETA Display** - Show estimated completion time
-
-**Quick Example**:
-```typescript
-import io from 'socket.io-client';
-
-const socket = io('http://localhost:3733/backtest-progress');
-socket.emit('subscribe', taskId);
-socket.on('progress', (data) => {
-  console.log(`${data.progress_percentage}% - ${data.current_step}`);
-});
-```
-
----
-
-### Portfolio Performance (Time-series)
-
-**What It Does**: Provides time-series performance data for trading strategy portfolios by querying hourly snapshots from the database and aggregating them based on user-specified timeframes.
-
-**Key Endpoints**:
-```
-GET /portfolios/:id/performance?timeframe=1W&granularity=DAILY
-```
-
-**Use Cases**:
-1. **Performance Charts** - Display equity curve over time
-2. **Summary Statistics** - Show ROI, total return, win rate
-3. **Historical Analysis** - Compare performance across different periods
-4. **Portfolio Comparison** - Track PAPER vs REAL portfolios
-
-**Quick Example**:
-```typescript
-// Fetch last week's daily performance
-const response = await fetch(
-  '/portfolios/clxxx123/performance?timeframe=1W&granularity=DAILY',
-  { headers: { Authorization: `Bearer ${token}` } }
-);
-
-const { data, summary } = await response.json();
-
-// data = array of daily performance snapshots
-// summary = statistics (start/end balance, ROI%, etc.)
-```
-
----
-
-## 📋 Documentation Standards
-
-All API documentation in this directory follows these conventions:
-
-### Structure
-- **Quick Start** - Get running in < 5 minutes
-- **API Specification** - Parameters, responses, errors
-- **Examples** - Real-world use cases with code
-- **Integration Guide** - Step-by-step implementation
-- **Reference** - Complete field descriptions
-
-### Code Examples
-- ✅ Copy-paste ready
-- ✅ TypeScript typed
-- ✅ Framework-agnostic (with React examples)
-- ✅ Production-ready patterns
-
-### Maintenance
-- Each document includes "Last Updated" date
-- Breaking changes are clearly marked
-- Backward compatibility is documented
-- Migration guides provided when needed
+The Swagger UI provides:
+- ✅ Complete API endpoint reference
+- ✅ Request/response schemas
+- ✅ Try-it-out functionality
+- ✅ Authentication testing
+- ✅ Real-time validation
 
 ---
 
 ## 🛠️ General API Information
 
 ### Base URL
+
 ```
-Production: https://api.your-org.com
 Development: http://localhost:3733
+Production: https://api.your-org.com
 ```
 
 ### Authentication
-All endpoints (except OAuth) require JWT authentication:
+
+All endpoints (except OAuth and public health checks) require JWT authentication:
+
 ```typescript
 headers: {
   'Authorization': 'Bearer <access_token>'
 }
 ```
 
+**Access Token**: 15-minute expiration (from `/auth/login` or `/auth/register`)
+**Refresh Token**: 7-day expiration (HTTP-only cookie)
+
 ### Rate Limiting
+
 - **Global**: 60 requests per minute per IP
-- **Authenticated**: Higher limits per user
+- **Authenticated**: Higher limits per user (see Swagger docs)
 
 ### Response Format
+
 All responses follow this structure:
+
 ```typescript
 // Success
-{ data: any, summary?: any }
+{
+  data: any,
+  summary?: any
+}
 
 // Error
-{ statusCode: number, message: string, errors?: string[] }
+{
+  statusCode: number,
+  message: string,
+  errors?: string[]
+}
 ```
 
 ### Timestamps
+
 - All timestamps are in **UTC** (ISO 8601 format)
+- Example: `"2025-10-23T14:30:00Z"`
 - Convert to user timezone in frontend
 
 ---
 
-## 📖 Related Documentation
+## 📖 API Endpoints Overview
 
-### Project Root Documentation
-- `../CLAUDE.md` - Claude Code guidance for this project
-- `../README.md` - Project overview and setup
+### Authentication (`/auth`)
 
-### API Documentation
-- Swagger UI: `http://localhost:3733/api/docs` (when running)
-- OpenAPI Spec: Generated via `pnpm run openapi:export`
+- `POST /auth/register` - Create new account
+- `POST /auth/login` - Login with email/password
+- `POST /auth/refresh` - Refresh access token
+- `POST /auth/logout` - Logout and invalidate tokens
+- `GET /auth/me` - Get current user profile
+- `PATCH /auth/me` - Update user profile
 
-### Database Documentation
-- Schema: `../prisma/schema.prisma`
-- Migrations: `../prisma/migrations/`
+**Google OAuth**:
+- `GET /auth/google` - Initiate Google OAuth flow
+- `GET /auth/google/callback` - OAuth callback handler
+
+**2FA (Two-Factor Authentication)**:
+- `POST /auth/2fa/setup` - Generate TOTP secret + QR code
+- `POST /auth/2fa/enable` - Enable 2FA with code verification
+- `POST /auth/2fa/disable` - Disable 2FA
+- `GET /auth/2fa/status` - Get 2FA status
+- `POST /auth/2fa/verify` - Verify 2FA code during login
+
+**Password Management**:
+- `POST /auth/password/forgot` - Request password reset
+- `POST /auth/password/reset` - Reset password with token
+- `POST /auth/password/set` - Set password for OAuth users
+
+**Email Verification**:
+- `POST /auth/email/send-verification` - Send verification email
+- `POST /auth/email/verify` - Verify email with code
+
+### Trading Accounts (`/trading-accounts`)
+
+- `GET /trading-accounts` - List all trading accounts
+- `POST /trading-accounts` - Create new trading account
+- `GET /trading-accounts/:id` - Get account details
+- `PATCH /trading-accounts/:id` - Update account
+- `DELETE /trading-accounts/:id` - Delete account (soft delete)
+
+### Strategies (`/strategies`)
+
+- `GET /strategies` - List all strategies
+- `POST /strategies` - Create new strategy
+- `GET /strategies/:id` - Get strategy details
+- `PATCH /strategies/:id` - Update strategy
+- `DELETE /strategies/:id` - Delete strategy
+- `POST /strategies/:id/activate` - Activate strategy
+- `POST /strategies/:id/deactivate` - Deactivate strategy
+
+### Backtest (`/backtest`)
+
+- `POST /backtest` - Create and queue backtest task
+- `GET /backtest` - List user's backtest results
+- `GET /backtest/:id` - Get backtest result details
+- `DELETE /backtest/:id` - Delete backtest result
+- `GET /backtest/tasks/:taskId/progress` - Get task progress (HTTP polling)
+- `GET /backtest/progress/all` - Get all tasks progress
+
+**WebSocket** (Real-time Progress):
+- Namespace: `ws://localhost:3733/backtest-progress`
+- Events: `subscribe`, `unsubscribe`, `get_progress`, `progress`, `all_tasks`, `error`
+- **Authentication**: JWT token required in `auth.token`
+
+### Portfolios (`/portfolios`)
+
+- `GET /portfolios` - List portfolios
+- `POST /portfolios` - Create portfolio
+- `GET /portfolios/:id` - Get portfolio details
+- `GET /portfolios/:id/performance` - Get time-series performance data
+
+### Positions (`/positions`)
+
+- `GET /positions` - List positions
+- `POST /positions` - Create position (manual)
+- `GET /positions/:id` - Get position details
+- `PATCH /positions/:id` - Update position
+- `DELETE /positions/:id` - Delete position
+
+### Orders (`/orders`)
+
+- `GET /orders` - List orders
+- `POST /orders` - Create order
+- `GET /orders/:id` - Get order details
+- `DELETE /orders/:id` - Cancel order
 
 ---
 
-## 🤝 Contributing to Documentation
+## 🔐 Security Features
 
-### Adding New Documentation
+### Authentication & Authorization
 
-1. Create a new `.md` file in this directory
-2. Follow the structure of existing docs
-3. Add entry to this README index
-4. Include "Last Updated" date
-5. Provide code examples
+- ✅ JWT-based authentication (access + refresh tokens)
+- ✅ HTTP-only cookies for refresh tokens
+- ✅ CSRF protection for OAuth flows
+- ✅ Password hashing with bcrypt (10 rounds)
+- ✅ Account lockout after 5 failed login attempts (15 min)
+- ✅ Email verification for new accounts
+- ✅ 2FA support with TOTP (Google Authenticator)
 
-### Updating Existing Documentation
+### Data Protection
 
-1. Update "Last Updated" date
-2. Document breaking changes clearly
-3. Update code examples if API changed
-4. Add migration guide if needed
+- ✅ API keys encrypted with AES-256-GCM
+- ✅ 2FA secrets encrypted with AES-256-GCM
+- ✅ Soft deletes (data marked deleted, not removed)
+- ✅ User data isolated (cannot access other users' data)
 
-### Documentation Checklist
+### Rate Limiting & CORS
 
-- [ ] Clear title and overview
-- [ ] Quick start example
-- [ ] Complete parameter descriptions
-- [ ] Response format with types
-- [ ] Error handling guide
-- [ ] Integration examples
-- [ ] Edge cases documented
-- [ ] Performance considerations
-- [ ] Testing guidance
+- ✅ Global rate limiting (60 req/min per IP)
+- ✅ CORS configured for allowed origins
+- ✅ Request validation with class-validator
 
 ---
 
-## 📞 Support
+## 📋 Response Examples
 
-### Questions About Documentation
-- **Missing information?** Create an issue or PR
-- **Found an error?** Submit a correction
-- **Need clarification?** Ask in team chat
+### Success Response
 
-### Questions About Implementation
-- **Backend issues:** Backend team
-- **API design:** API team lead
-- **Frontend integration:** Frontend team
+```json
+{
+  "data": {
+    "id": "clxxx123",
+    "email": "user@example.com",
+    "name": "John Doe"
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "statusCode": 400,
+  "message": "Validation failed",
+  "errors": [
+    "email must be a valid email address",
+    "password must be at least 8 characters"
+  ]
+}
+```
+
+### Paginated Response
+
+```json
+{
+  "data": [
+    { "id": "1", "name": "Item 1" },
+    { "id": "2", "name": "Item 2" }
+  ],
+  "summary": {
+    "total": 100,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
 
 ---
 
-## 📝 Changelog
+## 🧪 Testing the API
 
-### 2025-10-23
-- ✅ **Backtest Progress Tracking** - Added real-time WebSocket + HTTP polling
-  - Created comprehensive frontend integration guide
-  - Added progress tracking quick reference
-  - Included React hooks and components
-  - Completed comprehensive security audit (2 rounds)
-  - Fixed critical authentication vulnerability
-  - Implemented connection-level JWT authentication
-  - Added ownership caching for performance
-  - Documented all security improvements
-- ✅ **Portfolio Performance API** - Time-series performance data
-  - Added complete API documentation
-  - Created quick reference guide
-  - Added implementation changelog
-- ✅ **Documentation Index** - Created and organized all documentation
+### Using Swagger UI (Recommended)
+
+1. Start the backend: `pnpm run start:dev`
+2. Open: http://localhost:3733/api/docs
+3. Click "Authorize" button
+4. Enter your JWT access token
+5. Try out endpoints directly in the browser
+
+### Using curl
+
+```bash
+# Register
+curl -X POST http://localhost:3733/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123","name":"Test User"}'
+
+# Login
+curl -X POST http://localhost:3733/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+
+# Use access token
+TOKEN="your_access_token_here"
+
+curl -X GET http://localhost:3733/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Using Postman
+
+1. Import OpenAPI spec: `docs/openapi.json`
+2. Set environment variable `{{baseUrl}}` = `http://localhost:3733`
+3. Set authorization: Bearer Token with `{{accessToken}}`
 
 ---
 
-**Last Updated:** 2025-10-23
+## 🔄 Generating OpenAPI Spec
+
+To regenerate the OpenAPI specification after API changes:
+
+```bash
+pnpm run openapi:export
+```
+
+This will update both `openapi.json` and `openapi.yaml`.
+
+---
+
+## 📝 Development Workflow
+
+### Making API Changes
+
+1. Update controller/service code
+2. Update DTOs (Data Transfer Objects)
+3. Add/update Swagger decorators (`@ApiOperation`, `@ApiResponse`, etc.)
+4. Test locally with Swagger UI
+5. Run `pnpm run openapi:export` to update spec
+6. Commit changes
+
+### Adding New Endpoints
+
+1. Create/update controller method
+2. Add Swagger decorators:
+   ```typescript
+   @ApiOperation({ summary: 'Create new resource' })
+   @ApiResponse({ status: 201, description: 'Resource created' })
+   @ApiResponse({ status: 400, description: 'Validation failed' })
+   @Post()
+   async create(@Body() dto: CreateDto) {
+     // ...
+   }
+   ```
+3. Export OpenAPI spec
+4. Test in Swagger UI
+
+---
+
+## 🤝 Frontend Integration
+
+### REST API
+
+Use the OpenAPI spec with code generators:
+
+```bash
+# Generate TypeScript client
+npx @openapitools/openapi-generator-cli generate \
+  -i docs/openapi.json \
+  -g typescript-fetch \
+  -o src/api/generated
+```
+
+### WebSocket (Backtest Progress)
+
+For real-time backtest progress tracking:
+
+```typescript
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:3733/backtest-progress', {
+  auth: { token: yourAccessToken }
+});
+
+socket.on('progress', (data) => {
+  console.log(`Progress: ${data.progress_percentage}%`);
+});
+
+socket.emit('subscribe', taskId);
+```
+
+**Authentication**: JWT token required in `auth.token`
+**Events**: See Swagger UI for complete WebSocket API
+
+---
+
+## 🆘 Support
+
+### Documentation Issues
+
+- **Missing information?** Check Swagger UI: http://localhost:3733/api/docs
+- **Found an error?** Submit an issue or PR
+- **Need clarification?** Contact backend team
+
+### API Issues
+
+- **Authentication errors**: Check JWT token validity and expiration
+- **Rate limiting**: Reduce request frequency or contact team for higher limits
+- **CORS errors**: Verify `FRONTEND_URL` environment variable
+
+---
+
+## 📞 Contact
+
+**Repository**: `crypto-watcher-bot-backend`
+**API Docs**: http://localhost:3733/api/docs (when running)
+**Backend Team**: Contact via team chat or GitHub issues
+
+---
+
+**Last Updated**: 2025-10-23
