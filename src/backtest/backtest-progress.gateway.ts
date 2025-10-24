@@ -317,55 +317,20 @@ export class BacktestProgressGateway
   }
 
   /**
-   * Extract base step from enhanced Python worker format
-   * Examples:
-   * - "executing_trades:_431/505" → "executing_trades"
-   * - "completed!" → "completed"
-   * - "generating_results" → "generating_results" (unchanged)
-   */
-  private extractBaseStep(step: string): string {
-    if (!step || typeof step !== 'string') {
-      return '';
-    }
-
-    // Remove exclamation marks
-    let baseStep = step.replace(/!/g, '').trim();
-
-    // Extract base step before colon (for "executing_trades:_X/Y" format)
-    const colonIndex = baseStep.indexOf(':');
-    if (colonIndex !== -1) {
-      baseStep = baseStep.substring(0, colonIndex).trim();
-    }
-
-    return baseStep;
-  }
-
-  /**
    * Validate progress data structure from Python worker
    * Ensures all required fields are present and have correct types/values
    *
-   * NOTE: Python worker may send enhanced step formats with additional details.
-   * This validator extracts the base step for validation while preserving the
-   * original format for frontend display.
+   * NOTE: Python worker may send various step formats including:
+   * - Standard steps: "initializing", "detecting_patterns", "executing_trades", etc.
+   * - Intermediate steps: "starting_pattern_detection", "sorting_patterns_chronologically", etc.
+   * - Enhanced formats: "executing_trades:_431/505", "completed!", etc.
+   *
+   * We validate the structure and types but allow any non-empty string for current_step
+   * since the Python worker evolves and adds granular steps over time.
    */
   private isValidProgressData(data: any): data is ProgressData {
     // Valid enum values (must match Python worker output)
     const validStatuses: BacktestStatus[] = ['pending', 'running', 'completed', 'failed'];
-    const validBaseSteps: string[] = [
-      'initializing',
-      'fetching_data',
-      'detecting_patterns',
-      'sorting_patterns',
-      'starting_trade_execution',  // New step from Python worker
-      'executing_trades',
-      'generating_results',
-      'finalizing',
-      'completed',
-      'failed',
-    ];
-
-    // Extract base step from enhanced format for validation
-    const baseStep = this.extractBaseStep(data?.current_step);
 
     // Validate structure and types
     const isValid =
@@ -381,23 +346,23 @@ export class BacktestProgressGateway
       data.progress_percentage >= 0 &&
       data.progress_percentage <= 100 &&
       typeof data.current_step === 'string' &&
-      validBaseSteps.includes(baseStep) &&
+      data.current_step.length > 0 &&  // Accept any non-empty step string
       typeof data.timestamp === 'string';
 
     if (!isValid) {
       this.logger.error('Invalid progress data from Python worker', {
         data,
         validation: {
-          hasBacktestId: typeof data?.backtest_id === 'string',
-          hasUserId: typeof data?.user_id === 'string',
+          hasBacktestId: typeof data?.backtest_id === 'string' && data.backtest_id.length > 0,
+          hasUserId: typeof data?.user_id === 'string' && data.user_id.length > 0,
           hasValidStatus: validStatuses.includes(data?.status),
-          hasValidStep: validBaseSteps.includes(baseStep),
+          hasValidStep: typeof data?.current_step === 'string' && data.current_step.length > 0,
           currentStep: data?.current_step,
-          extractedBaseStep: baseStep,
           hasValidProgress:
             typeof data?.progress_percentage === 'number' &&
             data?.progress_percentage >= 0 &&
             data?.progress_percentage <= 100,
+          hasTimestamp: typeof data?.timestamp === 'string',
         },
       });
     }
