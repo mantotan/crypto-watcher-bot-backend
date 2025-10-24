@@ -312,6 +312,7 @@ export class BacktestProgressGateway
             return;
           }
 
+          this.logger.debug(`✅ Progress data validated, calling handleProgressUpdate for: ${progressData.backtest_id}`);
           this.handleProgressUpdate(progressData);
         } catch (error) {
           this.logger.error(`Failed to parse progress message from Python worker: ${error.message}`, {
@@ -422,8 +423,11 @@ export class BacktestProgressGateway
    * Emits ONLY to authenticated users who own this task (filtered by user_id)
    */
   private handleProgressUpdate(progressData: ProgressData) {
+    this.logger.debug(`📤 handleProgressUpdate called for backtest: ${progressData.backtest_id}, user: ${progressData.user_id}, progress: ${progressData.progress_percentage}%`);
+
     // Safety check: ensure server is initialized
     if (!this.server) {
+      this.logger.warn('⚠️ Server not initialized, skipping progress update');
       return; // Silent return during initialization
     }
 
@@ -447,14 +451,16 @@ export class BacktestProgressGateway
 
       // If sockets Map doesn't exist yet, silently return (initialization phase)
       if (!socketsMap) {
+        this.logger.warn('⚠️ Sockets Map not initialized, skipping progress update');
         return;
       }
 
       // Check if there are any connected clients at all
       const totalClients = socketsMap.size;
+      this.logger.debug(`👥 Total connected clients: ${totalClients}`);
+
       if (totalClients === 0) {
-        // This is normal - backtest may run when user is not connected
-        // No need to log every update when no clients are connected
+        this.logger.debug('⚠️ No clients connected, skipping progress update');
         return;
       }
 
