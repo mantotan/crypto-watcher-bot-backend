@@ -354,40 +354,66 @@ export class PositionService {
   }
 
   /**
-   * Find the candle that contains a specific price
-   * Returns the candle's timestamp if found, null otherwise
+   * Find the candle that matches a trade based on datetime and price
+   * Uses hybrid approach: finds by datetime first, validates price is in range,
+   * and searches nearby candles if needed
    */
-  private findCandleContainingPrice(
+  private findCandleByDatetimeAndPrice(
     candles: any[],
-    price: number,
-    priceType: 'entry' | 'exit',
+    targetDatetime: Date,
+    targetPrice: number,
+    searchWindowCandles: number = 10,
   ): string | null {
     if (!candles || candles.length === 0) return null;
 
-    const priceNum = Number(price);
+    const targetTime = targetDatetime.getTime();
+    const priceNum = Number(targetPrice);
+
     if (isNaN(priceNum)) return null;
 
-    // First, try to find exact match (open, high, low, close)
-    for (const candle of candles) {
-      const exactMatch =
-        Math.abs(candle.open - priceNum) < 0.001 ||
-        Math.abs(candle.high - priceNum) < 0.001 ||
-        Math.abs(candle.low - priceNum) < 0.001 ||
-        Math.abs(candle.close - priceNum) < 0.001;
+    // Step 1: Find the candle by datetime (at or before target time)
+    let datetimeMatchCandle: any = null;
+    let minTimeDiff = Infinity;
+    let datetimeMatchIndex = -1;
 
-      if (exactMatch) {
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i];
+      const candleTime = new Date(candle.timestamp).getTime();
+      const diff = targetTime - candleTime;
+
+      // Only consider candles at or before the target time
+      if (diff >= 0 && diff < minTimeDiff) {
+        minTimeDiff = diff;
+        datetimeMatchCandle = candle;
+        datetimeMatchIndex = i;
+      }
+    }
+
+    // Step 2: Check if the price is in the datetime-matched candle
+    if (datetimeMatchCandle) {
+      const inRange = priceNum >= datetimeMatchCandle.low && priceNum <= datetimeMatchCandle.high;
+      if (inRange) {
+        return datetimeMatchCandle.timestamp;
+      }
+    }
+
+    // Step 3: Price not in datetime match - search nearby candles
+    // Search within a window around the datetime match
+    const searchStart = Math.max(0, datetimeMatchIndex - searchWindowCandles);
+    const searchEnd = Math.min(candles.length, datetimeMatchIndex + searchWindowCandles + 1);
+
+    for (let i = searchStart; i < searchEnd; i++) {
+      const candle = candles[i];
+      const inRange = priceNum >= candle.low && priceNum <= candle.high;
+
+      if (inRange) {
+        // Found a candle with the price - prefer the one closest to target datetime
         return candle.timestamp;
       }
     }
 
-    // If no exact match, find candle where price is within range [low, high]
-    for (const candle of candles) {
-      if (priceNum >= candle.low && priceNum <= candle.high) {
-        return candle.timestamp;
-      }
-    }
-
-    return null;
+    // Step 4: Fallback to datetime match even if price not in range
+    return datetimeMatchCandle ? datetimeMatchCandle.timestamp : null;
   }
 
   /**
@@ -428,20 +454,21 @@ export class PositionService {
       );
     }
 
-    // Find candles that contain entry and exit prices
+    // Find candles that match entry and exit datetimes + prices
     const allCandles = [...(candleData.before || []), ...(candleData.after || [])];
-    const entryPrice = (position as any).entry_price;
-    const exitPrice = (position as any).exit_price;
     const isClosed = (position as any).status === 'CLOSED';
+    const entryPrice = (position as any).entry_price;
+    const exitDatetime = (position as any).exit_datetime;
+    const exitPrice = (position as any).exit_price;
 
-    const entryCandleTimestamp = this.findCandleContainingPrice(
+    const entryCandleTimestamp = this.findCandleByDatetimeAndPrice(
       allCandles,
+      entryDatetime,
       entryPrice,
-      'entry',
     );
 
-    const exitCandleTimestamp = isClosed
-      ? this.findCandleContainingPrice(allCandles, exitPrice, 'exit')
+    const exitCandleTimestamp = isClosed && exitDatetime && exitPrice
+      ? this.findCandleByDatetimeAndPrice(allCandles, exitDatetime, exitPrice)
       : null;
 
     return {
