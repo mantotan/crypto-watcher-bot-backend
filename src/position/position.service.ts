@@ -354,6 +354,43 @@ export class PositionService {
   }
 
   /**
+   * Find the candle that contains a specific price
+   * Returns the candle's timestamp if found, null otherwise
+   */
+  private findCandleContainingPrice(
+    candles: any[],
+    price: number,
+    priceType: 'entry' | 'exit',
+  ): string | null {
+    if (!candles || candles.length === 0) return null;
+
+    const priceNum = Number(price);
+    if (isNaN(priceNum)) return null;
+
+    // First, try to find exact match (open, high, low, close)
+    for (const candle of candles) {
+      const exactMatch =
+        Math.abs(candle.open - priceNum) < 0.001 ||
+        Math.abs(candle.high - priceNum) < 0.001 ||
+        Math.abs(candle.low - priceNum) < 0.001 ||
+        Math.abs(candle.close - priceNum) < 0.001;
+
+      if (exactMatch) {
+        return candle.timestamp;
+      }
+    }
+
+    // If no exact match, find candle where price is within range [low, high]
+    for (const candle of candles) {
+      if (priceNum >= candle.low && priceNum <= candle.high) {
+        return candle.timestamp;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Get candle data for position chart
    * Handles both open positions and closed trades
    */
@@ -391,6 +428,22 @@ export class PositionService {
       );
     }
 
+    // Find candles that contain entry and exit prices
+    const allCandles = [...(candleData.before || []), ...(candleData.after || [])];
+    const entryPrice = (position as any).entry_price;
+    const exitPrice = (position as any).exit_price;
+    const isClosed = (position as any).status === 'CLOSED';
+
+    const entryCandleTimestamp = this.findCandleContainingPrice(
+      allCandles,
+      entryPrice,
+      'entry',
+    );
+
+    const exitCandleTimestamp = isClosed
+      ? this.findCandleContainingPrice(allCandles, exitPrice, 'exit')
+      : null;
+
     return {
       position,
       candles: {
@@ -398,6 +451,8 @@ export class PositionService {
         after: candleData.after || [],
         reference_time: entryDatetime.toISOString(),
         total_candles: totalCandles,
+        entry_candle_timestamp: entryCandleTimestamp,
+        ...(isClosed && exitCandleTimestamp && { exit_candle_timestamp: exitCandleTimestamp }),
         ...(totalCandles === 0 && {
           error: 'No candle data available from chart service for this time range',
         }),

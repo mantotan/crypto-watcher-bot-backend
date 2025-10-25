@@ -272,9 +272,9 @@ export class GraphQLService {
   }
 
   /**
-   * Helper to calculate time based on timeframe and number of candles
+   * Get the interval in milliseconds for a given timeframe
    */
-  calculateTimeOffset(timeframe: string, numCandles: number): number {
+  getCandleInterval(timeframe: string): number {
     const timeframeMap: Record<string, number> = {
       '1m': 60 * 1000,
       '5m': 5 * 60 * 1000,
@@ -290,7 +290,14 @@ export class GraphQLService {
       throw new Error(`Unsupported timeframe: ${timeframe}`);
     }
 
-    return interval * numCandles;
+    return interval;
+  }
+
+  /**
+   * Helper to calculate time based on timeframe and number of candles
+   */
+  calculateTimeOffset(timeframe: string, numCandles: number): number {
+    return this.getCandleInterval(timeframe) * numCandles;
   }
 
   /**
@@ -328,15 +335,37 @@ export class GraphQLService {
     );
 
     // Split candles into before and after reference time
+    // Use period-aware splitting: a candle "contains" the reference time if the
+    // reference falls within the candle's period [timestamp, timestamp + interval)
+    const candleInterval = this.getCandleInterval(timeframe);
     const before: CandleData[] = [];
     const after: CandleData[] = [];
 
+    // Find the candle that contains the reference time
+    let containingCandleTime: number | null = null;
     for (const candle of allCandles) {
-      const candleTime = new Date(candle.timestamp);
-      if (candleTime < referenceTime) {
+      const candleTime = new Date(candle.timestamp).getTime();
+      const candleEnd = candleTime + candleInterval;
+      if (candleTime <= referenceTime.getTime() && referenceTime.getTime() < candleEnd) {
+        containingCandleTime = candleTime;
+        break;
+      }
+    }
+
+    // Split candles: before the containing candle, and from the containing candle onwards
+    for (const candle of allCandles) {
+      const candleTime = new Date(candle.timestamp).getTime();
+      if (containingCandleTime !== null && candleTime < containingCandleTime) {
         before.push(candle);
-      } else if (candleTime >= referenceTime) {
+      } else if (containingCandleTime !== null && candleTime >= containingCandleTime) {
         after.push(candle);
+      } else if (containingCandleTime === null) {
+        // Fallback to simple timestamp comparison if no containing candle found
+        if (candleTime < referenceTime.getTime()) {
+          before.push(candle);
+        } else {
+          after.push(candle);
+        }
       }
     }
 
