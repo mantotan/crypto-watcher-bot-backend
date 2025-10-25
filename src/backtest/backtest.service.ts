@@ -518,8 +518,42 @@ export class BacktestService {
   }
 
   /**
-   * Get backtest trade details with candle data
+   * Find the candle that contains a specific price
+   * Returns the candle's timestamp if found, null otherwise
    */
+  private findCandleContainingPrice(
+    candles: any[],
+    price: number,
+    priceType: 'entry' | 'exit',
+  ): string | null {
+    if (!candles || candles.length === 0) return null;
+
+    const priceNum = Number(price);
+    if (isNaN(priceNum)) return null;
+
+    // First, try to find exact match (open, high, low, close)
+    for (const candle of candles) {
+      const exactMatch =
+        Math.abs(candle.open - priceNum) < 0.001 ||
+        Math.abs(candle.high - priceNum) < 0.001 ||
+        Math.abs(candle.low - priceNum) < 0.001 ||
+        Math.abs(candle.close - priceNum) < 0.001;
+
+      if (exactMatch) {
+        return candle.timestamp;
+      }
+    }
+
+    // If no exact match, find candle where price is within range [low, high]
+    for (const candle of candles) {
+      if (priceNum >= candle.low && priceNum <= candle.high) {
+        return candle.timestamp;
+      }
+    }
+
+    return null;
+  }
+
   async getTradeDetails(userId: string, tradeId: string) {
     // Fetch the trade and verify it belongs to the user
     // Also check that the parent task is not deleted (archived tasks are still accessible)
@@ -628,6 +662,21 @@ export class BacktestService {
       );
     }
 
+    // Find candles that contain entry and exit prices
+    const allCandles = [...candleData.before, ...candleData.after];
+    const entryPrice = trade.entry_price;
+    const exitPrice = trade.exit_price;
+
+    const entryCandleTimestamp = this.findCandleContainingPrice(
+      allCandles,
+      entryPrice.toNumber(),
+      'entry',
+    );
+
+    const exitCandleTimestamp = exitPrice
+      ? this.findCandleContainingPrice(allCandles, exitPrice.toNumber(), 'exit')
+      : null;
+
     return {
       trade,
       candles: {
@@ -635,6 +684,8 @@ export class BacktestService {
         after: candleData.after,
         reference_time: candleData.reference,
         total_candles: totalCandles,
+        entry_candle_timestamp: entryCandleTimestamp,
+        ...(exitCandleTimestamp && { exit_candle_timestamp: exitCandleTimestamp }),
         ...(totalCandles === 0 && {
           error: 'No candle data available from chart service for this time range',
         }),
