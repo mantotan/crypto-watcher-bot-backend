@@ -2,8 +2,6 @@
 
 This directory contains the API documentation for the Crypto Watcher Trading Bot Backend.
 
----
-
 ## 📚 API Specification
 
 | Document | Description | Use Case |
@@ -350,13 +348,13 @@ const socket = io('http://localhost:3733/backtest-progress', {
 });
 
 socket.on('progress', (data) => {
-  console.log(`Progress: ${data.progress_percentage}% - ${data.current_step}`);
-  console.log(`Status: ${data.status}`);
+  console.log(`Backtest ${data.backtest_id}: ${data.progress_percentage}% - ${data.current_step}`);
+  console.log(`Status: ${data.status}, User: ${data.user_id}`);
 
-  // Progress data structure:
+  // Progress data structure (UPDATED Oct 24, 2025):
   // {
-  //   backtest_id: string,          // Backtest task ID
-  //   user_id: string,              // Owner user ID
+  //   backtest_id: string,          // Backtest task ID (renamed from task_id)
+  //   user_id: string,              // Owner user ID (NEW field)
   //   status: 'pending' | 'running' | 'completed' | 'failed',
   //   progress_percentage: number,  // 0-100 (decimal: 45.5)
   //   current_step: string,         // 'initializing' | 'fetching_data' | 'detecting_patterns' | ...
@@ -405,4 +403,4 @@ socket.emit('subscribe', taskId);
 
 ---
 
-**Last Updated**: 2025-10-23
+**Last Updated**: 2025-10-25
