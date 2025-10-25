@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, LogLevel } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { SwaggerConfig } from './config/swagger.config';
 import * as compression from 'compression';
@@ -9,7 +9,7 @@ async function bootstrap() {
   // Set log level based on environment
   // Production: ['error', 'warn', 'log'] - hides debug logs
   // Development: ['error', 'warn', 'log', 'debug', 'verbose'] - shows all logs
-  const logLevels = process.env.NODE_ENV === 'production'
+  const logLevels: LogLevel[] = process.env.NODE_ENV === 'production'
     ? ['error', 'warn', 'log']
     : ['error', 'warn', 'log', 'debug', 'verbose'];
 
