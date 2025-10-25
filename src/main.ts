@@ -6,7 +6,16 @@ import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Set log level based on environment
+  // Production: ['error', 'warn', 'log'] - hides debug logs
+  // Development: ['error', 'warn', 'log', 'debug', 'verbose'] - shows all logs
+  const logLevels = process.env.NODE_ENV === 'production'
+    ? ['error', 'warn', 'log']
+    : ['error', 'warn', 'log', 'debug', 'verbose'];
+
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevels,
+  });
 
   // Enable cookie parsing for HTTP-only cookie authentication
   app.use(cookieParser());

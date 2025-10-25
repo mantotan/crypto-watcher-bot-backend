@@ -288,9 +288,6 @@ export class BacktestProgressGateway
       // Signature: (message: string, channel: string) => void
       // Note: Redis v5 client automatically resubscribes on reconnection
       this.messageHandler = (message: string, channel: string) => {
-        // DEBUG: Log EVERY message received from Redis to confirm handler is called
-        this.logger.debug(`🔔 Redis message received on channel: ${channel}, message length: ${message?.length || 0}`);
-
         try {
           // Safety check: Ensure message is a string
           if (typeof message !== 'string' || !message) {
@@ -313,7 +310,6 @@ export class BacktestProgressGateway
             return;
           }
 
-          this.logger.debug(`✅ Progress data validated, calling handleProgressUpdate for: ${progressData.backtest_id}`);
           this.handleProgressUpdate(progressData);
         } catch (error) {
           this.logger.error(`Failed to parse progress message from Python worker: ${error.message}`, {
@@ -424,12 +420,10 @@ export class BacktestProgressGateway
    * Emits ONLY to authenticated users who own this task (filtered by user_id)
    */
   private handleProgressUpdate(progressData: ProgressData) {
-    this.logger.debug(`📤 handleProgressUpdate called for backtest: ${progressData.backtest_id}, user: ${progressData.user_id}, progress: ${progressData.progress_percentage}%`);
-
     // Safety check: ensure server is initialized
     if (!this.server) {
-      this.logger.warn('⚠️ Server not initialized, skipping progress update');
-      return; // Silent return during initialization
+      this.logger.warn('Server not initialized, skipping progress update');
+      return;
     }
 
     const { backtest_id, user_id } = progressData;
@@ -454,17 +448,14 @@ export class BacktestProgressGateway
 
       // If sockets Map doesn't exist yet, silently return (initialization phase)
       if (!socketsMap || !(socketsMap instanceof Map)) {
-        this.logger.warn('⚠️ Sockets Map not initialized, skipping progress update');
+        this.logger.warn('Sockets Map not initialized, skipping progress update');
         return;
       }
 
       // Check if there are any connected clients at all
       const totalClients = socketsMap.size;
-      this.logger.debug(`👥 Total connected clients: ${totalClients}`);
-
       if (totalClients === 0) {
-        this.logger.debug('⚠️ No clients connected, skipping progress update');
-        return;
+        return; // Silent return - no clients connected (normal during backtest execution)
       }
 
       // Emit ONLY to authenticated users who own this backtest
@@ -476,14 +467,10 @@ export class BacktestProgressGateway
         }
       });
 
+      // Log successful sends for monitoring (useful to confirm WebSocket is working)
       if (sentCount > 0) {
         this.logger.debug(
-          `Progress update sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
-        );
-      } else {
-        // Log when clients exist but none for this user (helps with debugging)
-        this.logger.debug(
-          `No connected clients for user ${user_id}, backtest ${backtest_id}. ${totalClients} other client(s) connected.`
+          `Progress sent to ${sentCount} client(s): ${backtest_id} - ${progressData.progress_percentage}% (${progressData.current_step})`,
         );
       }
     } catch (error) {
