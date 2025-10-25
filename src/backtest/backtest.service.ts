@@ -525,14 +525,36 @@ export class BacktestService {
     candles: any[],
     price: number,
     priceType: 'entry' | 'exit',
+    expectedTime?: Date | string,
   ): string | null {
     if (!candles || candles.length === 0) return null;
 
     const priceNum = Number(price);
     if (isNaN(priceNum)) return null;
 
+    // If expectedTime is provided, filter candles to only those at or after that time
+    let searchCandles = candles;
+    if (expectedTime) {
+      const expectedDate = new Date(expectedTime);
+      if (!isNaN(expectedDate.getTime())) {
+        searchCandles = candles.filter(candle => {
+          const candleDate = new Date(candle.timestamp);
+          return candleDate >= expectedDate;
+        });
+
+        // If no candles found at or after expected time, search all candles as fallback
+        if (searchCandles.length === 0) {
+          this.logger.warn(
+            `No candles found at or after expected time ${expectedDate.toISOString()} for ${priceType}, ` +
+            `searching all candles as fallback`
+          );
+          searchCandles = candles;
+        }
+      }
+    }
+
     // First, try to find exact match (open, high, low, close)
-    for (const candle of candles) {
+    for (const candle of searchCandles) {
       const exactMatch =
         Math.abs(candle.open - priceNum) < 0.001 ||
         Math.abs(candle.high - priceNum) < 0.001 ||
@@ -545,7 +567,7 @@ export class BacktestService {
     }
 
     // If no exact match, find candle where price is within range [low, high]
-    for (const candle of candles) {
+    for (const candle of searchCandles) {
       if (priceNum >= candle.low && priceNum <= candle.high) {
         return candle.timestamp;
       }
@@ -671,10 +693,16 @@ export class BacktestService {
       allCandles,
       entryPrice.toNumber(),
       'entry',
+      trade.entry_datetime,
     );
 
     const exitCandleTimestamp = exitPrice
-      ? this.findCandleContainingPrice(allCandles, exitPrice.toNumber(), 'exit')
+      ? this.findCandleContainingPrice(
+          allCandles,
+          exitPrice.toNumber(),
+          'exit',
+          trade.exit_datetime,
+        )
       : null;
 
     return {
