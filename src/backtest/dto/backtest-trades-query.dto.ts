@@ -1,10 +1,23 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsBoolean, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsInt, Min, Max, IsEnum } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+
+export enum BacktestTradeSortBy {
+  ENTRY_DATETIME = 'entry_datetime',
+  EXIT_DATETIME = 'exit_datetime',
+  CREATED_AT = 'created_at',
+  NET_PNL = 'net_pnl',
+  REWARD_RISK_RATIO = 'reward_risk_ratio',
+}
+
+export enum SortOrder {
+  ASC = 'asc',
+  DESC = 'desc',
+}
 
 export class BacktestTradesQueryDto {
   @ApiPropertyOptional({
-    description: 'Cursor for pagination (last trade ID from previous page)',
+    description: 'Cursor for pagination (last trade ID from previous page). WARNING: Reset cursor to null when changing sort_by or sort_order parameters.',
     example: 'cm1234567890abcdefghijk',
   })
   @IsString()
@@ -62,4 +75,23 @@ export class BacktestTradesQueryDto {
   @IsString()
   @IsOptional()
   exit_reason?: string;
+
+  @ApiPropertyOptional({
+    description: 'Field to sort by',
+    enum: BacktestTradeSortBy,
+    example: BacktestTradeSortBy.ENTRY_DATETIME,
+    default: BacktestTradeSortBy.ENTRY_DATETIME,
+  })
+  @IsEnum(BacktestTradeSortBy)
+  @IsOptional()
+  sort_by?: BacktestTradeSortBy = BacktestTradeSortBy.ENTRY_DATETIME;
+
+  @ApiPropertyOptional({
+    description: 'Sort order (asc = ascending, desc = descending). Default is asc for date fields, desc for metrics (pnl, reward_risk_ratio)',
+    enum: SortOrder,
+    example: SortOrder.ASC,
+  })
+  @IsEnum(SortOrder)
+  @IsOptional()
+  sort_order?: SortOrder;
 }

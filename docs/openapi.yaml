@@ -698,7 +698,7 @@ paths:
       tags: *ref_2
   /backtest/results/{resultId}/trades:
     get:
-      description: Returns individual trades from a backtest result with cursor-based pagination and filtering options. Use this endpoint to retrieve large datasets efficiently.
+      description: Returns individual trades from a backtest result with cursor-based pagination, filtering, and sorting options. Supports sorting by date (entry_datetime, exit_datetime, created_at), PnL (net_pnl), and risk/reward ratio (reward_risk_ratio). Use this endpoint to retrieve large datasets efficiently.
       operationId: BacktestController_getResultTrades
       parameters:
         - name: resultId
@@ -756,6 +756,30 @@ paths:
               - stop_loss_hit
               - take_profit_hit
               - pattern_expired
+        - name: sort_by
+          required: false
+          in: query
+          description: Field to sort by
+          schema:
+            default: entry_datetime
+            example: entry_datetime
+            type: string
+            enum:
+              - entry_datetime
+              - exit_datetime
+              - created_at
+              - net_pnl
+              - reward_risk_ratio
+        - name: sort_order
+          required: false
+          in: query
+          description: Sort order (asc = ascending, desc = descending). Default is asc for date fields, desc for metrics (pnl, reward_risk_ratio)
+          schema:
+            example: asc
+            type: string
+            enum:
+              - asc
+              - desc
       responses:
         '200':
           description: Trades retrieved successfully
@@ -768,7 +792,7 @@ paths:
         '404':
           description: Result not found
       security: *ref_1
-      summary: Get backtest result trades with pagination
+      summary: Get backtest result trades with pagination and sorting
       tags: *ref_2
   /backtest/trades/{tradeId}:
     get:

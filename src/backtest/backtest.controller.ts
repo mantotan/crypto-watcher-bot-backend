@@ -203,9 +203,10 @@ export class BacktestController {
 
   @Get('results/:resultId/trades')
   @ApiOperation({
-    summary: 'Get backtest result trades with pagination',
+    summary: 'Get backtest result trades with pagination and sorting',
     description:
-      'Returns individual trades from a backtest result with cursor-based pagination and filtering options. ' +
+      'Returns individual trades from a backtest result with cursor-based pagination, filtering, and sorting options. ' +
+      'Supports sorting by date (entry_datetime, exit_datetime, created_at), PnL (net_pnl), and risk/reward ratio (reward_risk_ratio). ' +
       'Use this endpoint to retrieve large datasets efficiently.',
   })
   @ApiParam({

@@ -4,7 +4,7 @@ import { QueueService } from '../redis/queue.service';
 import { GraphQLService } from '../graphql/graphql.service';
 import { CreateBacktestTaskDto } from './dto/create-backtest-task.dto';
 import { CreateBacktestStrategyDto } from './dto/create-backtest-strategy.dto';
-import { BacktestTradesQueryDto } from './dto/backtest-trades-query.dto';
+import { BacktestTradesQueryDto, BacktestTradeSortBy, SortOrder } from './dto/backtest-trades-query.dto';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -446,16 +446,46 @@ export class BacktestService {
 
     const limit = query.limit || 100;
 
+    // Determine sort field and order
+    const sortBy = query.sort_by || BacktestTradeSortBy.ENTRY_DATETIME;
+
+    // Smart default for sort_order based on field type
+    let sortOrder = query.sort_order;
+    if (!sortOrder) {
+      // Date fields default to ascending, metrics default to descending
+      if (sortBy === BacktestTradeSortBy.NET_PNL || sortBy === BacktestTradeSortBy.REWARD_RISK_RATIO) {
+        sortOrder = SortOrder.DESC;
+      } else {
+        sortOrder = SortOrder.ASC;
+      }
+    }
+
+    // Build orderBy - handle nullable fields with nulls last
+    let orderBy: Prisma.BacktestTradeOrderByWithRelationInput;
+
+    if (sortBy === BacktestTradeSortBy.EXIT_DATETIME || sortBy === BacktestTradeSortBy.NET_PNL) {
+      // Nullable fields - nulls always sort last
+      orderBy = {
+        [sortBy]: { sort: sortOrder, nulls: 'last' },
+      };
+    } else {
+      // Non-nullable fields
+      orderBy = {
+        [sortBy]: sortOrder,
+      };
+    }
+
     // Build query with or without cursor pagination
     const queryOptions: Prisma.BacktestTradeFindManyArgs = {
       where,
       take: limit + 1, // Fetch one extra to check if there are more
-      orderBy: {
-        entry_datetime: 'asc',
-      },
+      orderBy,
     };
 
     // Add cursor pagination if cursor is provided
+    // ⚠️ WARNING: Cursor-based pagination is incompatible with changing sort parameters.
+    // If the client changes sort_by or sort_order while using a cursor, results will be unpredictable.
+    // The client should reset cursor to null when changing sort parameters.
     if (query.cursor) {
       queryOptions.skip = 1;
       queryOptions.cursor = {
