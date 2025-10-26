@@ -9,6 +9,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { TradingMode, TradeSizeType, TradeSizeBenchmark } from '@prisma/client';
 
 export class UpdateStrategyDto {
@@ -63,6 +64,7 @@ export class UpdateStrategyDto {
     example: 5.0,
   })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0.01)
   @Max(100)
@@ -81,6 +83,7 @@ export class UpdateStrategyDto {
     example: 1.5,
   })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   min_risk_ratio?: number;
@@ -90,6 +93,7 @@ export class UpdateStrategyDto {
     example: 10.0,
   })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   max_risk_ratio?: number;
@@ -139,6 +143,7 @@ export class UpdateStrategyDto {
     example: 100000,
   })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   max_position_size_usd?: number;
