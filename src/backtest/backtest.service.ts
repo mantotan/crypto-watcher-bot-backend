@@ -543,8 +543,9 @@ export class BacktestService {
   }
 
   /**
-   * Find the candle that contains a specific price
-   * Returns the candle's timestamp if found, null otherwise
+   * Find the candle that matches a trade based on datetime and price
+   * Uses hybrid approach: finds by datetime first, validates price is in range,
+   * and searches nearby candles if needed
    */
   private findCandleContainingPrice(
     candles: any[],
@@ -557,45 +558,85 @@ export class BacktestService {
     const priceNum = Number(price);
     if (isNaN(priceNum)) return null;
 
-    // If expectedTime is provided, filter candles to only those at or after that time
-    let searchCandles = candles;
-    if (expectedTime) {
-      const expectedDate = new Date(expectedTime);
-      if (!isNaN(expectedDate.getTime())) {
-        searchCandles = candles.filter(candle => {
-          const candleDate = new Date(candle.timestamp);
-          return candleDate >= expectedDate;
-        });
-
-        // If no candles found at or after expected time, search all candles as fallback
-        if (searchCandles.length === 0) {
-          this.logger.warn(
-            `No candles found at or after expected time ${expectedDate.toISOString()} for ${priceType}, ` +
-            `searching all candles as fallback`
-          );
-          searchCandles = candles;
+    // If no expected time provided, fall back to price-only search
+    if (!expectedTime) {
+      for (const candle of candles) {
+        if (priceNum >= candle.low && priceNum <= candle.high) {
+          return candle.timestamp;
         }
       }
+      return null;
     }
 
-    // First, try to find exact match (open, high, low, close)
-    for (const candle of searchCandles) {
-      const exactMatch =
-        Math.abs(candle.open - priceNum) < 0.001 ||
-        Math.abs(candle.high - priceNum) < 0.001 ||
-        Math.abs(candle.low - priceNum) < 0.001 ||
-        Math.abs(candle.close - priceNum) < 0.001;
+    const expectedDate = new Date(expectedTime);
+    if (isNaN(expectedDate.getTime())) {
+      this.logger.warn(
+        `Invalid expected time for ${priceType}: ${expectedTime}, falling back to price-only search`
+      );
+      for (const candle of candles) {
+        if (priceNum >= candle.low && priceNum <= candle.high) {
+          return candle.timestamp;
+        }
+      }
+      return null;
+    }
 
-      if (exactMatch) {
+    const targetTime = expectedDate.getTime();
+
+    // Step 1: Find the candle by datetime (closest candle at or before target time)
+    let datetimeMatchCandle: any = null;
+    let minTimeDiff = Infinity;
+    let datetimeMatchIndex = -1;
+
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i];
+      const candleTime = new Date(candle.timestamp).getTime();
+      const diff = targetTime - candleTime;
+
+      // Only consider candles at or before the target time
+      if (diff >= 0 && diff < minTimeDiff) {
+        minTimeDiff = diff;
+        datetimeMatchCandle = candle;
+        datetimeMatchIndex = i;
+      }
+    }
+
+    // Step 2: Check if the price is in the datetime-matched candle
+    if (datetimeMatchCandle) {
+      const inRange = priceNum >= datetimeMatchCandle.low && priceNum <= datetimeMatchCandle.high;
+      if (inRange) {
+        return datetimeMatchCandle.timestamp;
+      }
+    }
+
+    // Step 3: Price not in datetime match - search nearby candles
+    // Search within a window around the datetime match
+    const searchWindowCandles = 10;
+    const searchStart = Math.max(0, datetimeMatchIndex - searchWindowCandles);
+    const searchEnd = Math.min(candles.length, datetimeMatchIndex + searchWindowCandles + 1);
+
+    for (let i = searchStart; i < searchEnd; i++) {
+      const candle = candles[i];
+      const inRange = priceNum >= candle.low && priceNum <= candle.high;
+
+      if (inRange) {
+        // Found a candle with the price - return it
+        this.logger.debug(
+          `${priceType} price ${priceNum} not in datetime-matched candle ${datetimeMatchCandle.timestamp}, ` +
+          `but found in nearby candle ${candle.timestamp}`
+        );
         return candle.timestamp;
       }
     }
 
-    // If no exact match, find candle where price is within range [low, high]
-    for (const candle of searchCandles) {
-      if (priceNum >= candle.low && priceNum <= candle.high) {
-        return candle.timestamp;
-      }
+    // Step 4: Fallback to datetime match even if price not in range
+    if (datetimeMatchCandle) {
+      this.logger.warn(
+        `${priceType} price ${priceNum} not found in any candle near expected time ${expectedDate.toISOString()}, ` +
+        `returning closest datetime match ${datetimeMatchCandle.timestamp} ` +
+        `(range: [${datetimeMatchCandle.low}, ${datetimeMatchCandle.high}])`
+      );
+      return datetimeMatchCandle.timestamp;
     }
 
     return null;
