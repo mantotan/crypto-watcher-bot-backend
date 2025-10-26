@@ -419,6 +419,8 @@ export class PositionService {
   /**
    * Get candle data for position chart
    * Handles both open positions and closed trades
+   * For closed positions: automatically calculates candles needed to show complete lifecycle
+   * with minimum 30 candles before entry and 30 candles after exit
    */
   async getPositionChartData(
     userId: string,
@@ -433,16 +435,87 @@ export class PositionService {
     // Extract entry datetime - use entry_datetime for closed trades, created_at for open positions
     const entryDatetime = (position as any).entry_datetime || position.created_at;
 
-    // Get timeframe from position (fallback to '4h' for legacy data)
+    // Get timeframe from position (fallback to '4h' for legacy data or Real positions)
     const timeframe = (position as any).timeframe || '4h';
+
+    // Warn if using fallback timeframe (indicates Real position or legacy data)
+    if (!(position as any).timeframe) {
+      this.logger.debug(
+        `Position ${positionId}: No timeframe in position data. Using default '4h'. ` +
+        `This may occur for Real trading positions or legacy data.`
+      );
+    }
+
+    // Calculate actual candles needed for closed positions
+    let actualCandlesBefore = candles_before;
+    let actualCandlesAfter = candles_after;
+
+    const isClosed = (position as any).status === 'CLOSED';
+    if (isClosed && (position as any).exit_datetime) {
+      try {
+        const exitDatetime = (position as any).exit_datetime;
+        const durationMs = exitDatetime.getTime() - entryDatetime.getTime();
+
+        // Validate duration (detect corrupted data)
+        if (durationMs < 0) {
+          this.logger.warn(
+            `Position ${positionId}: Exit datetime is before entry datetime. ` +
+            `Entry: ${entryDatetime.toISOString()}, Exit: ${exitDatetime.toISOString()}. ` +
+            `Using default candle counts.`
+          );
+        } else if (durationMs === 0) {
+          this.logger.debug(
+            `Position ${positionId}: Zero duration (instant close). Using default candle counts.`
+          );
+        } else {
+          // Get candle interval (may throw if timeframe is invalid)
+          const candleIntervalMs = this.graphqlService.getCandleInterval(timeframe);
+          const candlesFromEntryToExit = Math.ceil(durationMs / candleIntervalMs);
+
+          // Ensure minimum 30 candles before entry
+          actualCandlesBefore = Math.max(30, candles_before);
+
+          // Ensure we cover entry → exit + at least 30 candles after exit
+          // Apply reasonable upper limit to prevent excessive data fetching
+          const MAX_CANDLES_AFTER = 5000; // ~52 days at 15m, ~833 days at 4h
+          const desiredCandlesAfter = candlesFromEntryToExit + 30;
+          actualCandlesAfter = Math.max(candles_after, Math.min(desiredCandlesAfter, MAX_CANDLES_AFTER));
+
+          // Warn if position duration exceeds limit
+          if (desiredCandlesAfter > MAX_CANDLES_AFTER) {
+            const durationDays = (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
+            this.logger.warn(
+              `Position ${positionId} (${position.symbol} ${timeframe}): ` +
+              `Very long duration (${durationDays} days, ${candlesFromEntryToExit} candles). ` +
+              `Limiting to ${MAX_CANDLES_AFTER} candles after entry. Exit may not be visible.`
+            );
+          }
+
+          this.logger.debug(
+            `Position ${positionId} (${position.symbol} ${timeframe}): ` +
+            `Closed position requires ${candlesFromEntryToExit} candles from entry to exit. ` +
+            `Fetching ${actualCandlesBefore} before (min 30) and ${actualCandlesAfter} after (exit + 30 buffer).`
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to calculate candles for position ${positionId}: ${error.message}. ` +
+          `Using default candle counts (${candles_before} before, ${candles_after} after).`,
+          error.stack
+        );
+        // Keep defaults on error
+        actualCandlesBefore = candles_before;
+        actualCandlesAfter = candles_after;
+      }
+    }
 
     // GraphQL service now handles errors gracefully and returns partial/empty data
     const candleData = await this.graphqlService.getCandlesAroundTime(
       position.symbol,
       timeframe,
       entryDatetime,
-      candles_before,
-      candles_after,
+      actualCandlesBefore,
+      actualCandlesAfter,
     );
 
     const totalCandles = (candleData.before?.length || 0) + (candleData.after?.length || 0);
@@ -456,7 +529,6 @@ export class PositionService {
 
     // Find candles that match entry and exit datetimes + prices
     const allCandles = [...(candleData.before || []), ...(candleData.after || [])];
-    const isClosed = (position as any).status === 'CLOSED';
     const entryPrice = (position as any).entry_price;
     const exitDatetime = (position as any).exit_datetime;
     const exitPrice = (position as any).exit_price;

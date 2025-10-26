@@ -106,7 +106,10 @@ export class PositionController {
     description:
       'Fetches candle data from GraphQL service for visualizing the position on a chart. ' +
       'Returns candles before and after position entry time. ' +
-      'Works with both open positions and closed trades (uses entry_datetime for closed trades).',
+      'Works with both open positions and closed trades (uses entry_datetime for closed trades). ' +
+      'For closed positions: automatically calculates candles needed to show complete position lifecycle ' +
+      'with minimum 30 candles before entry and 30 candles after exit. Auto-calculation can exceed the 200 candles_after limit ' +
+      'but is capped at 5000 candles for performance. Very long positions (>5000 candles) may not show the exit.',
   })
   @ApiParam({
     name: 'id',

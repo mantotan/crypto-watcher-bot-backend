@@ -12,7 +12,7 @@ export class PositionChartQueryDto {
   mode: TradingMode;
 
   @ApiPropertyOptional({
-    description: 'Number of candles before entry',
+    description: 'Number of candles before entry. For closed positions, minimum 30 candles are guaranteed.',
     example: 50,
     default: 50,
     minimum: 1,
@@ -26,7 +26,7 @@ export class PositionChartQueryDto {
   candles_before?: number = 50;
 
   @ApiPropertyOptional({
-    description: 'Number of candles after entry',
+    description: 'Number of candles after entry. For closed positions, automatically calculated to ensure complete position lifecycle is shown (entry to exit + 30 candles buffer). Auto-calculation can exceed the 200 maximum but is capped at 5000 candles for performance.',
     example: 50,
     default: 50,
     minimum: 1,
