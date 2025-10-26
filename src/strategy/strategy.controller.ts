@@ -214,7 +214,7 @@ export class StrategyController {
   @ApiOperation({
     summary: 'Delete strategy',
     description:
-      'Deletes a strategy. Cannot delete if is_live=true or if there are open positions. ' +
+      'Deletes a strategy. Cannot delete if is_live=true. ' +
       'This action is permanent.',
   })
   @ApiParam({
@@ -227,7 +227,7 @@ export class StrategyController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Cannot delete - strategy is live or has open positions',
+    description: 'Cannot delete - strategy is live',
   })
   @ApiResponse({
     status: 404,

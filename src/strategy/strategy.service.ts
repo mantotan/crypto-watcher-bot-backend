@@ -550,14 +550,6 @@ export class StrategyService {
         account: { user_id: userId },
         deleted_at: null,
       },
-      include: {
-        positions: {
-          where: { is_active: true },
-        },
-        paper_positions: {
-          where: { is_active: true },
-        },
-      },
     });
 
     if (!strategy) {
@@ -567,11 +559,6 @@ export class StrategyService {
     // Validate strategy is not live
     if (strategy.is_live) {
       throw new BadRequestException('Cannot delete a live strategy. Stop the strategy first.');
-    }
-
-    // Validate no open positions
-    if (strategy.positions.length > 0 || strategy.paper_positions.length > 0) {
-      throw new BadRequestException('Cannot delete strategy with open positions. Close all positions first.');
     }
 
     // Soft delete strategy (set deleted_at timestamp)
