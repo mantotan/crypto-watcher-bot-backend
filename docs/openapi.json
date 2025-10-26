@@ -1149,7 +1149,7 @@
             "name": "cursor",
             "required": false,
             "in": "query",
-            "description": "Cursor for pagination (last trade ID from previous page)",
+            "description": "Cursor for pagination (last trade ID from previous page). WARNING: Reset cursor to null when changing sort_by or sort_order parameters.",
             "schema": {
               "example": "cm1234567890abcdefghijk",
               "type": "string"
@@ -2921,7 +2921,7 @@
     },
     "/positions/{id}/chart-data": {
       "get": {
-        "description": "Fetches candle data from GraphQL service for visualizing the position on a chart. Returns candles before and after position entry time. Works with both open positions and closed trades (uses entry_datetime for closed trades).",
+        "description": "Fetches candle data from GraphQL service for visualizing the position on a chart. Returns candles before and after position entry time. Works with both open positions and closed trades (uses entry_datetime for closed trades). For closed positions: automatically calculates candles needed to show complete position lifecycle with minimum 30 candles before entry and 30 candles after exit. Auto-calculation can exceed the 200 candles_after limit but is capped at 5000 candles for performance. Very long positions (>5000 candles) may not show the exit.",
         "operationId": "PositionController_getPositionChartData",
         "parameters": [
           {
@@ -2950,7 +2950,7 @@
             "name": "candles_before",
             "required": false,
             "in": "query",
-            "description": "Number of candles before entry",
+            "description": "Number of candles before entry. For closed positions, minimum 30 candles are guaranteed.",
             "schema": {
               "minimum": 1,
               "maximum": 200,
@@ -2963,7 +2963,7 @@
             "name": "candles_after",
             "required": false,
             "in": "query",
-            "description": "Number of candles after entry",
+            "description": "Number of candles after entry. For closed positions, automatically calculated to ensure complete position lifecycle is shown (entry to exit + 30 candles buffer). Auto-calculation can exceed the 200 maximum but is capped at 5000 candles for performance.",
             "schema": {
               "minimum": 1,
               "maximum": 200,
@@ -3523,13 +3523,21 @@
           },
           "start_date": {
             "type": "string",
-            "description": "Start date for backtest (ISO 8601 format)",
-            "example": "2024-01-01T00:00:00.000Z"
+            "description": "Start date and time for backtest in your local timezone (from user profile). Format: \"YYYY-MM-DD HH:mm:ss\" or \"YYYY-MM-DDTHH:mm:ss\" (no timezone offset). Will be automatically converted to UTC using your preferred timezone setting.",
+            "examples": [
+              "2024-01-01 00:00:00",
+              "2024-01-01T00:00:00"
+            ],
+            "example": "2024-01-01 00:00:00"
           },
           "end_date": {
             "type": "string",
-            "description": "End date for backtest (ISO 8601 format)",
-            "example": "2024-12-31T23:59:59.999Z"
+            "description": "End date and time for backtest in your local timezone (from user profile). Format: \"YYYY-MM-DD HH:mm:ss\" or \"YYYY-MM-DDTHH:mm:ss\" (no timezone offset). Will be automatically converted to UTC using your preferred timezone setting.",
+            "examples": [
+              "2024-12-31 23:59:59",
+              "2024-12-31T23:59:59"
+            ],
+            "example": "2024-12-31 23:59:59"
           },
           "is_combine_timeframe": {
             "type": "boolean",

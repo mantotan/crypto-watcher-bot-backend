@@ -67,15 +67,27 @@ export class CreateBacktestTaskDto {
   timeframes: string[];
 
   @ApiProperty({
-    description: 'Start date for backtest (ISO 8601 format)',
-    example: '2024-01-01T00:00:00.000Z',
+    description: 'Start date and time for backtest in your local timezone (from user profile). ' +
+      'Format: "YYYY-MM-DD HH:mm:ss" or "YYYY-MM-DDTHH:mm:ss" (no timezone offset). ' +
+      'Will be automatically converted to UTC using your preferred timezone setting.',
+    examples: [
+      '2024-01-01 00:00:00',
+      '2024-01-01T00:00:00',
+    ],
+    example: '2024-01-01 00:00:00',
   })
   @IsDateString()
   start_date: string;
 
   @ApiProperty({
-    description: 'End date for backtest (ISO 8601 format)',
-    example: '2024-12-31T23:59:59.999Z',
+    description: 'End date and time for backtest in your local timezone (from user profile). ' +
+      'Format: "YYYY-MM-DD HH:mm:ss" or "YYYY-MM-DDTHH:mm:ss" (no timezone offset). ' +
+      'Will be automatically converted to UTC using your preferred timezone setting.',
+    examples: [
+      '2024-12-31 23:59:59',
+      '2024-12-31T23:59:59',
+    ],
+    example: '2024-12-31 23:59:59',
   })
   @IsDateString()
   end_date: string;

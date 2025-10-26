@@ -6,6 +6,7 @@ import { CreateBacktestTaskDto } from './dto/create-backtest-task.dto';
 import { CreateBacktestStrategyDto } from './dto/create-backtest-strategy.dto';
 import { BacktestTradesQueryDto, BacktestTradeSortBy, SortOrder } from './dto/backtest-trades-query.dto';
 import { Prisma } from '@prisma/client';
+import { convertUserTimezoneToUTC } from '../common/utils/timezone.util';
 
 @Injectable()
 export class BacktestService {
@@ -21,12 +22,36 @@ export class BacktestService {
    * Create a new backtest task and submit to Redis queue
    */
   async createTask(userId: string, dto: CreateBacktestTaskDto) {
-    // Validate dates
-    const startDate = new Date(dto.start_date);
-    const endDate = new Date(dto.end_date);
+    // Fetch user's preferred timezone
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferred_timezone: true },
+    });
 
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const userTimezone = user.preferred_timezone;
+
+    // Convert dates from user's timezone to UTC
+    let startDate: Date;
+    let endDate: Date;
+
+    try {
+      startDate = convertUserTimezoneToUTC(dto.start_date, userTimezone);
+      endDate = convertUserTimezoneToUTC(dto.end_date, userTimezone);
+    } catch (error) {
+      throw new BadRequestException(
+        `Invalid datetime format. ${error.message}`
+      );
+    }
+
+    // Validate dates
     if (startDate >= endDate) {
-      throw new BadRequestException('start_date must be before end_date');
+      throw new BadRequestException(
+        'start_date must be before end_date (in your timezone: ' + userTimezone + ')'
+      );
     }
 
     // If strategy_id is provided, verify it belongs to the user
