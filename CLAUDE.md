@@ -23,6 +23,10 @@ Claude Code guidance for this NestJS-based crypto trading bot API backend. Handl
 
 **Trading System** (`src/trading-account/`, `src/strategy/`, `src/position/`, `src/portfolio/`)
 - Encrypted API keys (AES-256-GCM), signal filtering, position sizing, leverage up to 125x, separate real/paper P&L tracking
+- **Hedging Support**: `allow_hedging` flag (default: false) controls whether opposite positions (LONG + SHORT) on same symbol are allowed
+  - When `false`: Only one position side per symbol per strategy (enforced by unique constraint `@@unique([account_id, strategy_id, symbol, side, is_active])`)
+  - When `true`: Both LONG and SHORT positions can exist simultaneously on same symbol
+  - Available in both live trading (`Strategy` model) and backtesting (`BacktestStrategy` model)
 
 **Backtest System** (`src/backtest/`)
 - Redis queue → Python worker → PostgreSQL results, supports multi-symbol/timeframe runs
@@ -109,6 +113,10 @@ See `.env.example` for all variables.
 POST `/backtest/tasks` → Validate → Save to DB → Push to Redis `backtest:queue` → Python worker processes → Write results → Update status (QUEUED → RUNNING → COMPLETED/FAILED) → Poll GET `/backtest/tasks/:id` for results
 
 **Results:** `BacktestResult` (summary) + `BacktestTrade[]` (JSONB pattern data) | Query by result_id with symbol/timeframe filters
+
+**Strategy Config:** The `strategy_config` JSONB field passed to Python worker includes all strategy settings, including:
+- `allow_hedging` (boolean): Controls whether opposite positions on same symbol are allowed
+- Python worker MUST respect this setting when executing trades during backtesting
 
 ## Progress Tracking
 

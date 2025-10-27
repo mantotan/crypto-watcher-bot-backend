@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   ValidateIf,
   IsEnum,
+  IsBoolean,
 } from 'class-validator';
 import { PositionSide } from '../../common/enums';
 
@@ -119,4 +120,17 @@ export class BacktestStrategyConfigDto {
   @IsNumber()
   @IsOptional()
   max_position_size_usd?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Allow opening opposite positions (LONG + SHORT) on the same symbol. ' +
+      'When false (default), only one position side per symbol is allowed. ' +
+      'When true, both LONG and SHORT positions can exist simultaneously. ' +
+      'IMPORTANT: Python backtest worker must respect this setting.',
+    example: false,
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  allow_hedging?: boolean;
 }

@@ -292,6 +292,7 @@ model Strategy {
   allowed_symbols      String[] // ["BTCUSDT", "ETHUSDT"] or empty for all
   allowed_timeframes   String[] // ["1m", "15m", "1h", "4h"] or empty for all
   max_position_size_usd Decimal @default(100000.00) @db.Decimal(12, 2) // Maximum position size in USD
+  allow_hedging        Boolean @default(false) // Allow opening opposite positions on same symbol
 
   // Trading Mode Configuration
   is_live   Boolean     @default(false) // Is strategy currently running
@@ -750,6 +751,7 @@ model BacktestStrategy {
   min_risk_ratio Decimal? @db.Decimal(6, 2)
   max_risk_ratio Decimal? @db.Decimal(6, 2)
   max_position_size_usd Decimal @default(100000.00) @db.Decimal(12, 2) // Maximum position size in USD
+  allow_hedging        Boolean @default(false) // Allow opening opposite positions on same symbol
 
   // Additional configuration (leverage limits, filters, etc.)
   config Json? // Flexible for future settings

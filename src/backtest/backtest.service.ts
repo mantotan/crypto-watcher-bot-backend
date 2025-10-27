@@ -854,6 +854,7 @@ export class BacktestService {
         min_risk_ratio: dto.config.min_risk_ratio,
         max_risk_ratio: dto.config.max_risk_ratio,
         max_position_size_usd: dto.config.max_position_size_usd,
+        allow_hedging: dto.config.allow_hedging ?? false,
         config: dto.config as unknown as Prisma.InputJsonValue,
       },
     });

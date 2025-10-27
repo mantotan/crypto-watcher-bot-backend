@@ -1438,7 +1438,7 @@ paths:
       summary: Update strategy settings
       tags: *ref_5
     delete:
-      description: Deletes a strategy. Cannot delete if is_live=true or if there are open positions. This action is permanent.
+      description: Deletes a strategy. Cannot delete if is_live=true. This action is permanent.
       operationId: StrategyController_deleteStrategy
       parameters:
         - name: id
@@ -1451,7 +1451,7 @@ paths:
         '200':
           description: Strategy deleted successfully
         '400':
-          description: Cannot delete - strategy is live or has open positions
+          description: Cannot delete - strategy is live
         '401':
           description: Unauthorized
         '404':
@@ -2215,6 +2215,11 @@ components:
           description: Maximum position size in USD
           example: 100000
           minimum: 1
+        allow_hedging:
+          type: boolean
+          description: 'Allow opening opposite positions (LONG + SHORT) on the same symbol. When false (default), only one position side per symbol is allowed. When true, both LONG and SHORT positions can exist simultaneously. IMPORTANT: Python backtest worker must respect this setting.'
+          example: false
+          default: false
       required:
         - strategy_type
         - risk_mode
@@ -2630,6 +2635,11 @@ components:
           description: Maximum position size in USD
           example: 100000
           default: 100000
+        allow_hedging:
+          type: boolean
+          description: Allow opening opposite positions (LONG + SHORT) on the same symbol. When false (default), only one position side per symbol is allowed. When true, both LONG and SHORT positions can exist simultaneously.
+          example: false
+          default: false
       required:
         - name
         - trading_account_id
@@ -2728,6 +2738,10 @@ components:
           type: number
           description: Maximum position size in USD
           example: 100000
+        allow_hedging:
+          type: boolean
+          description: Allow opening opposite positions (LONG + SHORT) on the same symbol. When false (default), only one position side per symbol is allowed. When true, both LONG and SHORT positions can exist simultaneously.
+          example: false
     UpdatePortfolioDto:
       type: object
       properties:

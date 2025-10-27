@@ -165,4 +165,16 @@ export class CreateStrategyDto {
   @IsNumber()
   @Min(1)
   max_position_size_usd?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Allow opening opposite positions (LONG + SHORT) on the same symbol. ' +
+      'When false (default), only one position side per symbol is allowed. ' +
+      'When true, both LONG and SHORT positions can exist simultaneously.',
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  allow_hedging?: boolean;
 }
