@@ -354,66 +354,102 @@ export class PositionService {
   }
 
   /**
-   * Find the candle that matches a trade based on datetime and price
-   * Uses hybrid approach: finds by datetime first, validates price is in range,
-   * and searches nearby candles if needed
+   * Find entry candle - allows small forward window since entry might happen
+   * on signal detection candle or next candle
+   * @returns Object with timestamp and whether price is in candle's OHLC range
    */
-  private findCandleByDatetimeAndPrice(
+  private findEntryCandleTimestamp(
     candles: any[],
-    targetDatetime: Date,
-    targetPrice: number,
-    searchWindowCandles: number = 10,
-  ): string | null {
-    if (!candles || candles.length === 0) return null;
+    entryDatetime: Date,
+    entryPrice: number,
+  ): { timestamp: string | null; priceInRange: boolean } {
+    if (!candles || candles.length === 0) {
+      return { timestamp: null, priceInRange: false };
+    }
 
-    const targetTime = targetDatetime.getTime();
-    const priceNum = Number(targetPrice);
+    const targetTime = entryDatetime.getTime();
+    const priceNum = Number(entryPrice);
 
-    if (isNaN(priceNum)) return null;
-
-    // Step 1: Find the candle by datetime (at or before target time)
-    let datetimeMatchCandle: any = null;
+    // Find candle at or immediately after entry time
+    let bestCandle = null;
     let minTimeDiff = Infinity;
-    let datetimeMatchIndex = -1;
 
-    for (let i = 0; i < candles.length; i++) {
-      const candle = candles[i];
+    for (const candle of candles) {
+      const candleTime = new Date(candle.timestamp).getTime();
+      const diff = Math.abs(targetTime - candleTime);
+
+      // Consider candles at or after entry time (reasonable forward window)
+      if (candleTime >= targetTime || diff <= minTimeDiff) {
+        if (diff < minTimeDiff) {
+          minTimeDiff = diff;
+          bestCandle = candle;
+        }
+      }
+    }
+
+    if (!bestCandle) return { timestamp: null, priceInRange: false };
+
+    const priceInRange = !isNaN(priceNum) &&
+      priceNum >= bestCandle.low &&
+      priceNum <= bestCandle.high;
+
+    return {
+      timestamp: bestCandle.timestamp,
+      priceInRange,
+    };
+  }
+
+  /**
+   * Find exit candle - strict time-based matching since exit is a recorded event
+   * NEVER returns a candle before the reasonable time window
+   * @returns Object with timestamp and whether price is in candle's OHLC range
+   */
+  private findExitCandleTimestamp(
+    candles: any[],
+    exitDatetime: Date,
+    exitPrice: number,
+  ): { timestamp: string | null; priceInRange: boolean } {
+    if (!candles || candles.length === 0) {
+      return { timestamp: null, priceInRange: false };
+    }
+
+    const targetTime = exitDatetime.getTime();
+    const priceNum = Number(exitPrice);
+
+    // Find the candle that contains the exit time
+    // This is the candle where: candle.timestamp <= exitDatetime < next_candle.timestamp
+    let bestCandle = null;
+    let minTimeDiff = Infinity;
+
+    for (const candle of candles) {
       const candleTime = new Date(candle.timestamp).getTime();
       const diff = targetTime - candleTime;
 
-      // Only consider candles at or before the target time
+      // Only consider candles AT or BEFORE exit time
       if (diff >= 0 && diff < minTimeDiff) {
         minTimeDiff = diff;
-        datetimeMatchCandle = candle;
-        datetimeMatchIndex = i;
+        bestCandle = candle;
       }
     }
 
-    // Step 2: Check if the price is in the datetime-matched candle
-    if (datetimeMatchCandle) {
-      const inRange = priceNum >= datetimeMatchCandle.low && priceNum <= datetimeMatchCandle.high;
-      if (inRange) {
-        return datetimeMatchCandle.timestamp;
-      }
+    if (!bestCandle) return { timestamp: null, priceInRange: false };
+
+    const priceInRange = !isNaN(priceNum) &&
+      priceNum >= bestCandle.low &&
+      priceNum <= bestCandle.high;
+
+    // Log warning if price not in range (indicates data issue)
+    if (!priceInRange && !isNaN(priceNum)) {
+      this.logger.debug(
+        `Exit price ${priceNum} not in candle range [${bestCandle.low}, ${bestCandle.high}] ` +
+        `at ${bestCandle.timestamp}. This may indicate price slippage or data granularity issues.`
+      );
     }
 
-    // Step 3: Price not in datetime match - search nearby candles
-    // Search within a window around the datetime match
-    const searchStart = Math.max(0, datetimeMatchIndex - searchWindowCandles);
-    const searchEnd = Math.min(candles.length, datetimeMatchIndex + searchWindowCandles + 1);
-
-    for (let i = searchStart; i < searchEnd; i++) {
-      const candle = candles[i];
-      const inRange = priceNum >= candle.low && priceNum <= candle.high;
-
-      if (inRange) {
-        // Found a candle with the price - prefer the one closest to target datetime
-        return candle.timestamp;
-      }
-    }
-
-    // Step 4: Fallback to datetime match even if price not in range
-    return datetimeMatchCandle ? datetimeMatchCandle.timestamp : null;
+    return {
+      timestamp: bestCandle.timestamp,
+      priceInRange,
+    };
   }
 
   /**
@@ -533,14 +569,15 @@ export class PositionService {
     const exitDatetime = (position as any).exit_datetime;
     const exitPrice = (position as any).exit_price;
 
-    const entryCandleTimestamp = this.findCandleByDatetimeAndPrice(
+    // Use specialized functions for entry and exit
+    const entryCandleResult = this.findEntryCandleTimestamp(
       allCandles,
       entryDatetime,
       entryPrice,
     );
 
-    const exitCandleTimestamp = isClosed && exitDatetime && exitPrice
-      ? this.findCandleByDatetimeAndPrice(allCandles, exitDatetime, exitPrice)
+    const exitCandleResult = isClosed && exitDatetime && exitPrice
+      ? this.findExitCandleTimestamp(allCandles, exitDatetime, exitPrice)
       : null;
 
     return {
@@ -550,8 +587,12 @@ export class PositionService {
         after: candleData.after || [],
         reference_time: entryDatetime.toISOString(),
         total_candles: totalCandles,
-        entry_candle_timestamp: entryCandleTimestamp,
-        ...(isClosed && exitCandleTimestamp && { exit_candle_timestamp: exitCandleTimestamp }),
+        entry_candle_timestamp: entryCandleResult.timestamp,
+        entry_price_in_range: entryCandleResult.priceInRange,
+        ...(isClosed && exitCandleResult && {
+          exit_candle_timestamp: exitCandleResult.timestamp,
+          exit_price_in_range: exitCandleResult.priceInRange,
+        }),
         ...(totalCandles === 0 && {
           error: 'No candle data available from chart service for this time range',
         }),
