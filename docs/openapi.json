@@ -1312,6 +1312,70 @@
         ]
       }
     },
+    "/backtest/results/{resultId}/performance-chart": {
+      "get": {
+        "description": "Returns time-series equity curve data (portfolio balance over time) for visualizing backtest performance. This endpoint aggregates trade data into chart-ready format. Optionally filter by symbol and/or timeframe for multi-symbol/timeframe backtests.",
+        "operationId": "BacktestController_getPerformanceChart",
+        "parameters": [
+          {
+            "name": "resultId",
+            "required": true,
+            "in": "path",
+            "description": "Backtest result ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "symbol",
+            "required": false,
+            "in": "query",
+            "description": "Filter performance data by specific symbol (e.g., \"BTCUSDT\")",
+            "schema": {
+              "example": "BTCUSDT",
+              "type": "string"
+            }
+          },
+          {
+            "name": "timeframe",
+            "required": false,
+            "in": "query",
+            "description": "Filter performance data by specific timeframe (e.g., \"4h\", \"1h\")",
+            "schema": {
+              "example": "4h",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Performance chart data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceChartResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Result not found or parent task has been deleted"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Get performance chart data for a backtest result",
+        "tags": [
+          "Backtest"
+        ]
+      }
+    },
     "/backtest/tasks/{taskId}/progress": {
       "get": {
         "description": "Returns the current progress of a backtest task. This is a polling fallback for clients that cannot use WebSocket. For real-time updates, use the WebSocket gateway instead.",
@@ -3694,6 +3758,128 @@
         "required": [
           "data",
           "pagination",
+          "summary"
+        ]
+      },
+      "EquityCurvePointDto": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "description": "Timestamp of the data point (ISO 8601)",
+            "example": "2025-01-15T10:30:00.000Z"
+          },
+          "balance": {
+            "type": "number",
+            "description": "Portfolio balance at this point",
+            "example": 10500.5
+          },
+          "trade_number": {
+            "type": "number",
+            "description": "Trade sequence number (0 = initial state)",
+            "example": 1
+          }
+        },
+        "required": [
+          "timestamp",
+          "balance",
+          "trade_number"
+        ]
+      },
+      "PerformanceChartSummaryDto": {
+        "type": "object",
+        "properties": {
+          "initial_balance": {
+            "type": "number",
+            "description": "Initial capital at start of backtest",
+            "example": 10000
+          },
+          "final_balance": {
+            "type": "number",
+            "description": "Final balance at end of backtest",
+            "example": 12500.5
+          },
+          "total_return_percentage": {
+            "type": "number",
+            "description": "Total return percentage",
+            "example": 25.01
+          },
+          "max_drawdown_percentage": {
+            "type": "number",
+            "description": "Maximum drawdown percentage experienced",
+            "example": 15.25
+          },
+          "peak_balance": {
+            "type": "number",
+            "description": "Highest balance reached during backtest",
+            "example": 13000
+          },
+          "total_trades": {
+            "type": "number",
+            "description": "Total number of trades executed",
+            "example": 45
+          },
+          "winning_trades": {
+            "type": "number",
+            "description": "Number of winning trades",
+            "example": 28
+          },
+          "losing_trades": {
+            "type": "number",
+            "description": "Number of losing trades",
+            "example": 17
+          },
+          "win_rate": {
+            "type": "number",
+            "description": "Win rate percentage",
+            "example": 62.22
+          }
+        },
+        "required": [
+          "initial_balance",
+          "final_balance",
+          "total_return_percentage",
+          "max_drawdown_percentage",
+          "peak_balance",
+          "total_trades",
+          "winning_trades",
+          "losing_trades",
+          "win_rate"
+        ]
+      },
+      "PerformanceChartResponseDto": {
+        "type": "object",
+        "properties": {
+          "equity_curve": {
+            "description": "Time-series data for equity curve (portfolio balance over time)",
+            "example": [
+              {
+                "timestamp": "2025-01-01T00:00:00.000Z",
+                "balance": 10000,
+                "trade_number": 0
+              },
+              {
+                "timestamp": "2025-01-02T10:30:00.000Z",
+                "balance": 10150.5,
+                "trade_number": 1
+              }
+            ],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquityCurvePointDto"
+            }
+          },
+          "summary": {
+            "description": "Summary statistics for the performance chart",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PerformanceChartSummaryDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "equity_curve",
           "summary"
         ]
       },

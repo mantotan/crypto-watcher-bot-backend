@@ -5,6 +5,12 @@ import { GraphQLService } from '../graphql/graphql.service';
 import { CreateBacktestTaskDto } from './dto/create-backtest-task.dto';
 import { CreateBacktestStrategyDto } from './dto/create-backtest-strategy.dto';
 import { BacktestTradesQueryDto, BacktestTradeSortBy, SortOrder } from './dto/backtest-trades-query.dto';
+import { PerformanceChartQueryDto } from './dto/performance-chart-query.dto';
+import {
+  PerformanceChartResponseDto,
+  EquityCurvePointDto,
+  PerformanceChartSummaryDto,
+} from './dto/performance-chart-response.dto';
 import { Prisma } from '@prisma/client';
 import { convertUserTimezoneToUTC } from '../common/utils/timezone.util';
 
@@ -1030,6 +1036,148 @@ export class BacktestService {
     return {
       message: 'Strategy deleted successfully',
       id: deletedStrategy.id,
+    };
+  }
+
+  // ============================================================================
+  // PERFORMANCE CHART METHODS
+  // ============================================================================
+
+  /**
+   * Get performance chart data for a backtest result
+   * Generates time-series data for equity curve (portfolio balance over time)
+   */
+  async getPerformanceChart(
+    userId: string,
+    resultId: string,
+    query: PerformanceChartQueryDto,
+  ): Promise<PerformanceChartResponseDto> {
+    // First verify the result exists and belongs to the user
+    const result = await this.prisma.backtestResult.findFirst({
+      where: {
+        id: resultId,
+        backtest: {
+          user_id: userId,
+          deleted_at: null, // Parent task must not be deleted (archived is OK)
+        },
+      },
+      select: {
+        id: true,
+        backtest_id: true,
+        initial_capital: true,
+        final_capital: true,
+        total_return_percentage: true,
+        max_drawdown_percentage: true,
+        total_trades: true,
+        winning_trades: true,
+        losing_trades: true,
+        win_rate: true,
+        start_date: true,
+        end_date: true,
+      },
+    });
+
+    if (!result) {
+      throw new NotFoundException('Backtest result not found or parent task has been deleted');
+    }
+
+    // Build where clause for trade filtering
+    const where: Prisma.BacktestTradeWhereInput = {
+      result_id: resultId,
+      ...(query.symbol && { symbol: query.symbol }),
+      ...(query.timeframe && { timeframe: query.timeframe }),
+    };
+
+    // Fetch all trades ordered by exit_datetime (ascending)
+    // We only need: exit_datetime, portfolio_value, net_pnl
+    const trades = await this.prisma.backtestTrade.findMany({
+      where,
+      orderBy: {
+        exit_datetime: { sort: 'asc', nulls: 'last' }, // Nulls last (open trades)
+      },
+      select: {
+        exit_datetime: true,
+        portfolio_value: true,
+        net_pnl: true,
+      },
+    });
+
+    // Filter out trades without exit_datetime (open positions, shouldn't exist in backtest but safety check)
+    const completedTrades = trades.filter((t) => t.exit_datetime !== null);
+
+    this.logger.debug(
+      `Calculating equity curve for result ${resultId}: ${completedTrades.length} completed trades`,
+    );
+
+    // Initialize equity curve array
+    const equityCurve: EquityCurvePointDto[] = [];
+
+    // Initial state (trade 0 - starting point)
+    const initialBalance = result.initial_capital.toNumber();
+    const startTimestamp = result.start_date.toISOString();
+
+    equityCurve.push({
+      timestamp: startTimestamp,
+      balance: initialBalance,
+      trade_number: 0,
+    });
+
+    // Track peak balance for summary max_drawdown calculation
+    let peakBalance = initialBalance;
+    let maxDrawdownPercentage = 0;
+
+    // Process each trade - only generate equity curve points
+    completedTrades.forEach((trade, index) => {
+      const tradeNumber = index + 1;
+      const timestamp = trade.exit_datetime.toISOString();
+      const balance = trade.portfolio_value?.toNumber() || 0;
+
+      // Add equity curve point
+      equityCurve.push({
+        timestamp,
+        balance: Math.round(balance * 100) / 100, // Round to 2 decimals
+        trade_number: tradeNumber,
+      });
+
+      // Track peak and max drawdown for summary
+      if (balance > peakBalance) {
+        peakBalance = balance;
+      }
+      const drawdownPercentage = peakBalance > 0 ? ((peakBalance - balance) / peakBalance) * 100 : 0;
+      if (drawdownPercentage > maxDrawdownPercentage) {
+        maxDrawdownPercentage = drawdownPercentage;
+      }
+    });
+
+    // Calculate summary
+    const finalBalance = completedTrades.length > 0
+      ? completedTrades[completedTrades.length - 1].portfolio_value?.toNumber() || initialBalance
+      : initialBalance;
+
+    const totalReturnPercentage = initialBalance > 0
+      ? ((finalBalance - initialBalance) / initialBalance) * 100
+      : 0;
+
+    // Count winning and losing trades from the filtered set
+    const winningTrades = completedTrades.filter((t) => t.net_pnl && t.net_pnl.toNumber() > 0).length;
+    const losingTrades = completedTrades.filter((t) => t.net_pnl && t.net_pnl.toNumber() <= 0).length;
+    const winRate = completedTrades.length > 0 ? (winningTrades / completedTrades.length) * 100 : 0;
+
+    const summary: PerformanceChartSummaryDto = {
+      initial_balance: Math.round(initialBalance * 100) / 100,
+      final_balance: Math.round(finalBalance * 100) / 100,
+      total_return_percentage: Math.round(totalReturnPercentage * 100) / 100,
+      max_drawdown_percentage: Math.round(maxDrawdownPercentage * 100) / 100,
+      peak_balance: Math.round(peakBalance * 100) / 100,
+      total_trades: completedTrades.length,
+      winning_trades: winningTrades,
+      losing_trades: losingTrades,
+      win_rate: Math.round(winRate * 100) / 100,
+    };
+
+    return {
+      equity_curve: equityCurve,
+      summary,
     };
   }
 }

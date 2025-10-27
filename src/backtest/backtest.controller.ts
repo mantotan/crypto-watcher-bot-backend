@@ -28,6 +28,8 @@ import { ListTasksQueryDto } from './dto/list-tasks-query.dto';
 import { ListStrategiesQueryDto } from './dto/list-strategies-query.dto';
 import { BacktestTradesQueryDto } from './dto/backtest-trades-query.dto';
 import { BacktestTradesResponseDto } from './dto/backtest-response.dto';
+import { PerformanceChartQueryDto } from './dto/performance-chart-query.dto';
+import { PerformanceChartResponseDto } from './dto/performance-chart-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RedisService } from '../redis/redis.service';
 
@@ -260,6 +262,39 @@ export class BacktestController {
   })
   async getTradeDetails(@Request() req, @Param('tradeId') tradeId: string) {
     return this.backtestService.getTradeDetails(req.user.id, tradeId);
+  }
+
+  @Get('results/:resultId/performance-chart')
+  @ApiOperation({
+    summary: 'Get performance chart data for a backtest result',
+    description:
+      'Returns time-series equity curve data (portfolio balance over time) for visualizing backtest performance. ' +
+      'This endpoint aggregates trade data into chart-ready format. ' +
+      'Optionally filter by symbol and/or timeframe for multi-symbol/timeframe backtests.',
+  })
+  @ApiParam({
+    name: 'resultId',
+    description: 'Backtest result ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Performance chart data retrieved successfully',
+    type: PerformanceChartResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Result not found or parent task has been deleted',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  async getPerformanceChart(
+    @Request() req,
+    @Param('resultId') resultId: string,
+    @Query() query: PerformanceChartQueryDto,
+  ) {
+    return this.backtestService.getPerformanceChart(req.user.id, resultId, query);
   }
 
   // ============================================================================
