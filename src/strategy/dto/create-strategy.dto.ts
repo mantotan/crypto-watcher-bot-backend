@@ -90,7 +90,7 @@ export class CreateStrategyDto {
 
   @ApiPropertyOptional({
     description: 'Allowed signal patterns',
-    example: ['double_bottom', 'double_top'],
+    example: ['double_bottom', 'double_top', 'bullish_pennant', 'bearish_pennant'],
     isArray: true,
     type: [String],
   })

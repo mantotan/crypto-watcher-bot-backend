@@ -117,7 +117,7 @@ export class CreateBacktestTaskDto {
         summary: 'Percentage Risk Mode',
         value: {
           strategy_type: 'pattern_breakout',
-          allowed_patterns: ['double_top', 'double_bottom'],
+          allowed_patterns: ['double_top', 'double_bottom', 'bullish_pennant', 'bearish_pennant'],
           risk_mode: 'PERCENTAGE',
           risk_per_trade_percentage: 5.0,
           initial_capital: 10000.0,
@@ -129,7 +129,7 @@ export class CreateBacktestTaskDto {
         summary: 'Fixed Amount Risk Mode',
         value: {
           strategy_type: 'pattern_breakout',
-          allowed_patterns: ['double_top', 'double_bottom', 'head_shoulders'],
+          allowed_patterns: ['double_top', 'double_bottom', 'bullish_pennant', 'bearish_pennant'],
           risk_mode: 'FIXED_AMOUNT',
           fixed_risk_amount: 100.0,
           initial_capital: 10000.0,

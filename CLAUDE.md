@@ -118,6 +118,16 @@ POST `/backtest/tasks` → Validate → Save to DB → Push to Redis `backtest:q
 - `allow_hedging` (boolean): Controls whether opposite positions on same symbol are allowed
 - Python worker MUST respect this setting when executing trades during backtesting
 
+**Cancellation Flow:**
+1. User clicks "Cancel" in UI → Frontend calls `PATCH /backtest/tasks/:id/cancel`
+2. NestJS backend updates PostgreSQL: `status = 'CANCELLED'`
+3. Python worker polls DB at checkpoint (every 10 patterns detected)
+4. Worker detects `CANCELLED` status from database
+5. Worker stops gracefully, saves completed trades to DB
+6. Progress published via WebSocket: `status="cancelled"` with metadata
+- **Note:** No Redis flags needed - worker polls database directly for status changes
+- **Endpoint:** `PATCH /backtest/tasks/:id/cancel` (only QUEUED/RUNNING tasks can be cancelled)
+
 ## Progress Tracking
 
 **Real-time WebSocket (Recommended):**

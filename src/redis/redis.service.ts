@@ -8,7 +8,7 @@ const PROGRESS_CACHE_KEY_PREFIX = 'backtest:progress:cache:'; // Individual keys
  * Backtest task status enum
  * Matches Python worker output
  */
-export type BacktestStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type BacktestStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 /**
  * Backtest progress step enum
@@ -30,6 +30,7 @@ export type ProgressStep =
   | 'finalizing'            // 95-99%: Final cleanup
   | 'completed'             // 100%: Done
   | 'failed'                // 0%: Error occurred
+  | 'cancelled'             // Task was cancelled by user
   | string;                 // Allow enhanced formats from Python worker
 
 /**

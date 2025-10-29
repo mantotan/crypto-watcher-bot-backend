@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../redis/queue.service';
+import { RedisService } from '../redis/redis.service';
 import { GraphQLService } from '../graphql/graphql.service';
 import { CreateBacktestTaskDto } from './dto/create-backtest-task.dto';
 import { CreateBacktestStrategyDto } from './dto/create-backtest-strategy.dto';
@@ -21,6 +22,7 @@ export class BacktestService {
   constructor(
     private prisma: PrismaService,
     private queueService: QueueService,
+    private redisService: RedisService,
     private graphqlService: GraphQLService,
   ) {}
 
@@ -330,6 +332,106 @@ export class BacktestService {
       message: 'Task deleted successfully',
       id: deletedTask.id,
     };
+  }
+
+  /**
+   * Cancel a backtest task
+   * Sets the task status to CANCELLED. The Python worker will detect this status
+   * during its checkpoint polls (every 10 patterns) and gracefully stop processing.
+   */
+  async cancelTask(userId: string, taskId: string) {
+    // First check if task exists and belongs to user
+    const task = await this.prisma.backtestTask.findFirst({
+      where: {
+        id: taskId,
+        user_id: userId,
+        deleted_at: null, // Cannot cancel already deleted tasks
+      },
+      include: {
+        strategy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Backtest task not found');
+    }
+
+    // Can only cancel QUEUED or RUNNING tasks
+    if (task.status !== 'QUEUED' && task.status !== 'RUNNING') {
+      throw new BadRequestException(
+        `Cannot cancel task with status ${task.status}. Only QUEUED or RUNNING tasks can be cancelled.`
+      );
+    }
+
+    // Update task status to CANCELLED
+    // Worker will detect this during its next checkpoint poll
+    const cancelledTask = await this.prisma.backtestTask.update({
+      where: { id: taskId },
+      data: {
+        status: 'CANCELLED',
+      },
+      include: {
+        strategy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    // Publish cancellation progress to Redis for immediate WebSocket notification
+    try {
+      const cancellationProgress = {
+        backtest_id: taskId,
+        user_id: userId,
+        status: 'cancelled' as const,
+        progress_percentage: 0,
+        current_step: 'cancelled',
+        timestamp: new Date().toISOString(),
+        metadata: {
+          cancelled_by: 'user',
+          cancelled_at: new Date().toISOString(),
+          message: 'Backtest cancelled by user',
+        },
+      };
+
+      // Publish to Redis channel (same channel as Python worker)
+      const client = this.redisService.getClient();
+      await client.publish(
+        'backtest:progress:all',
+        JSON.stringify(cancellationProgress)
+      );
+
+      this.logger.log(
+        `Published cancellation progress for task ${taskId} to Redis channel`
+      );
+
+      // Also update the cache key for HTTP polling fallback
+      const cacheKey = `backtest:progress:cache:${taskId}`;
+      await client.set(cacheKey, JSON.stringify(cancellationProgress), {
+        EX: 3600, // 1 hour TTL
+      });
+
+      this.logger.log(
+        `Backtest task ${taskId} cancelled successfully. ` +
+        `WebSocket clients notified and worker will detect on next checkpoint.`
+      );
+    } catch (redisError) {
+      // Don't fail the cancellation if Redis publish fails
+      // The database is already updated, and gateway validation will filter stale updates
+      this.logger.warn(
+        `Failed to publish cancellation progress for task ${taskId}: ${redisError.message}. ` +
+        `Gateway validation will still filter stale updates.`
+      );
+    }
+
+    return cancelledTask;
   }
 
   /**

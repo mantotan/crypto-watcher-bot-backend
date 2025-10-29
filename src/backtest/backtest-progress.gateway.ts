@@ -56,6 +56,14 @@ export class BacktestProgressGateway
   // Signature for pSubscribe listener: (message, channel)
   private messageHandler: ((message: string, channel: string) => void) | null = null;
 
+  // Task status cache for filtering stale updates
+  // Maps task_id -> { status, cachedAt timestamp }
+  // Purpose: Prevent stale "running" updates after cancellation
+  // Cache TTL: 30 seconds (balance between freshness and query reduction)
+  private taskStatusCache = new Map<string, { status: string; cachedAt: number }>();
+  private readonly CACHE_TTL_MS = 30000; // 30 seconds
+  private cacheCleanupInterval: NodeJS.Timeout | null = null;
+
   constructor(
     private redisService: RedisService,
     private prismaService: PrismaService,
@@ -152,6 +160,7 @@ export class BacktestProgressGateway
 
     await this.subscribeToRedis();
     this.startTokenExpirationChecker();
+    this.startCacheCleanup();
   }
 
   async onModuleDestroy() {
@@ -163,6 +172,17 @@ export class BacktestProgressGateway
       this.tokenExpirationChecker = null;
       this.logger.log('Token expiration checker stopped');
     }
+
+    // Stop cache cleanup interval
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval);
+      this.cacheCleanupInterval = null;
+      this.logger.log('Cache cleanup interval stopped');
+    }
+
+    // Clear cache
+    this.taskStatusCache.clear();
+    this.logger.log('Task status cache cleared');
 
     // Unsubscribe from Redis channel to prevent memory leaks
     if (this.isSubscribed) {
@@ -362,7 +382,7 @@ export class BacktestProgressGateway
    */
   private isValidProgressData(data: any): data is ProgressData {
     // Valid enum values (must match Python worker output)
-    const validStatuses: BacktestStatus[] = ['pending', 'running', 'completed', 'failed'];
+    const validStatuses: BacktestStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
 
     // Validate structure and types
     const isValid =
@@ -416,17 +436,174 @@ export class BacktestProgressGateway
   }
 
   /**
+   * Normalize status for consistent comparison
+   * Database uses uppercase (CANCELLED), Redis uses lowercase (cancelled)
+   */
+  private normalizeStatus(status: string): string {
+    return status.toLowerCase();
+  }
+
+  /**
+   * Get cached status for a task (returns null if expired or not found)
+   */
+  private getCachedStatus(taskId: string): string | null {
+    const cached = this.taskStatusCache.get(taskId);
+    if (!cached) {
+      return null;
+    }
+
+    const now = Date.now();
+    if (now - cached.cachedAt > this.CACHE_TTL_MS) {
+      // Cache expired
+      this.taskStatusCache.delete(taskId);
+      return null;
+    }
+
+    return cached.status;
+  }
+
+  /**
+   * Set cached status for a task
+   */
+  private setCachedStatus(taskId: string, status: string): void {
+    this.taskStatusCache.set(taskId, {
+      status: this.normalizeStatus(status),
+      cachedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Clear expired cache entries (called periodically)
+   */
+  private clearExpiredCacheEntries(): void {
+    const now = Date.now();
+    let clearedCount = 0;
+
+    for (const [taskId, cached] of this.taskStatusCache.entries()) {
+      if (now - cached.cachedAt > this.CACHE_TTL_MS) {
+        this.taskStatusCache.delete(taskId);
+        clearedCount++;
+      }
+    }
+
+    if (clearedCount > 0) {
+      this.logger.debug(`Cleared ${clearedCount} expired cache entries (total cached: ${this.taskStatusCache.size})`);
+    }
+  }
+
+  /**
+   * Start cache cleanup interval
+   */
+  private startCacheCleanup(): void {
+    // Clean up every 60 seconds (2x the TTL for efficiency)
+    this.cacheCleanupInterval = setInterval(() => {
+      this.clearExpiredCacheEntries();
+    }, 60000);
+
+    this.logger.log('Task status cache cleanup started (runs every 60s)');
+  }
+
+  /**
+   * Validate task status against database
+   * Returns true if update should be forwarded, false if it should be filtered
+   *
+   * This prevents stale "running" updates after cancellation since the Python
+   * worker only polls the database every 10 patterns (~10-30 second delay).
+   */
+  private async validateTaskStatus(
+    taskId: string,
+    redisStatus: string,
+    userId: string,
+  ): Promise<boolean> {
+    try {
+      // Check cache first to reduce database queries
+      const cachedStatus = this.getCachedStatus(taskId);
+      if (cachedStatus) {
+        const normalizedRedisStatus = this.normalizeStatus(redisStatus);
+
+        // If cached status is cancelled but Redis says running, filter it out
+        if (cachedStatus === 'cancelled' && normalizedRedisStatus !== 'cancelled') {
+          this.logger.warn(
+            `Filtering stale progress update for cancelled task ${taskId} ` +
+            `(cached: ${cachedStatus}, redis: ${normalizedRedisStatus}) [CACHE HIT]`,
+          );
+          return false;
+        }
+
+        // Cache hit, status matches or is acceptable
+        return true;
+      }
+
+      // Cache miss - query database
+      const task = await this.prismaService.backtestTask.findUnique({
+        where: { id: taskId },
+        select: { status: true, user_id: true },
+      });
+
+      // Task not found - this is unusual but could happen if deleted
+      if (!task) {
+        this.logger.warn(
+          `Skipping progress update for non-existent task ${taskId}`,
+        );
+        return false;
+      }
+
+      const dbStatus = this.normalizeStatus(task.status);
+      const normalizedRedisStatus = this.normalizeStatus(redisStatus);
+
+      // Cache the database status
+      this.setCachedStatus(taskId, dbStatus);
+
+      // SECURITY: Verify user_id matches (defense in depth)
+      if (task.user_id !== userId) {
+        this.logger.error(
+          `SECURITY: user_id mismatch for task ${taskId}! ` +
+          `DB: ${task.user_id}, Redis: ${userId}`,
+        );
+        return false;
+      }
+
+      // If database shows cancelled but Redis doesn't, filter out the stale update
+      if (dbStatus === 'cancelled' && normalizedRedisStatus !== 'cancelled') {
+        this.logger.warn(
+          `Filtering stale progress update for cancelled task ${taskId} ` +
+          `(DB: ${dbStatus}, Redis: ${normalizedRedisStatus}) [CACHE MISS - DB QUERY]`,
+        );
+        return false;
+      }
+
+      // Clear cache for terminal statuses after logging
+      // This prevents cache buildup for completed/failed/cancelled tasks
+      if (['completed', 'failed', 'cancelled'].includes(dbStatus)) {
+        // Don't delete immediately - let it cache for the TTL period
+        // This helps filter any remaining stale updates in the pipeline
+        this.logger.debug(`Task ${taskId} is in terminal status: ${dbStatus}`);
+      }
+
+      // Update is valid
+      return true;
+    } catch (error) {
+      // On database error, fail open to avoid blocking legitimate updates
+      this.logger.error(
+        `Failed to validate task status for ${taskId}: ${error.message}. ` +
+        `Forwarding update anyway to avoid blocking progress.`,
+      );
+      return true;
+    }
+  }
+
+  /**
    * Handle progress update from Redis
    * Emits ONLY to authenticated users who own this task (filtered by user_id)
    */
-  private handleProgressUpdate(progressData: ProgressData) {
+  private async handleProgressUpdate(progressData: ProgressData) {
     // Safety check: ensure server is initialized
     if (!this.server) {
       this.logger.warn('Server not initialized, skipping progress update');
       return;
     }
 
-    const { backtest_id, user_id } = progressData;
+    const { backtest_id, user_id, status } = progressData;
 
     // SECURITY: Defensive check for missing user_id
     // This should never happen due to isValidProgressData() checks,
@@ -436,6 +613,14 @@ export class BacktestProgressGateway
         'CRITICAL: Progress data missing user_id! This should never happen. Dropping update to prevent security leak.',
         { backtest_id, progressData }
       );
+      return;
+    }
+
+    // VALIDATION: Check database status to filter stale updates
+    // This prevents "running" updates after cancellation (worker has ~10-30s polling delay)
+    const isValid = await this.validateTaskStatus(backtest_id, status, user_id);
+    if (!isValid) {
+      // Update filtered out - validation method already logged the reason
       return;
     }
 
@@ -500,8 +685,8 @@ export class BacktestProgressGateway
     try {
       const allProgress = await this.redisService.getAllTasksProgress();
 
-      // Filter tasks by user_id (in-memory filtering, no DB query needed)
-      const userTasks: Record<string, ProgressData> = {};
+      // Filter tasks by user_id first (in-memory filtering)
+      const userTasksFromRedis: Record<string, ProgressData> = {};
       let skippedCount = 0;
 
       for (const [taskId, progress] of Object.entries(allProgress)) {
@@ -515,15 +700,74 @@ export class BacktestProgressGateway
         }
 
         if (progress.user_id === user.id) {
-          userTasks[taskId] = progress;
+          userTasksFromRedis[taskId] = progress;
         }
       }
 
-      client.emit('all_tasks', userTasks);
+      // VALIDATION: Fetch actual task statuses from database to filter stale Redis data
+      // This prevents sending cancelled/completed tasks that are still cached in Redis
+      const taskIds = Object.keys(userTasksFromRedis);
 
-      this.logger.debug(
-        `Sent ${Object.keys(userTasks).length} tasks to user ${user.email}${skippedCount > 0 ? ` (skipped ${skippedCount} tasks without user_id)` : ''}`,
-      );
+      if (taskIds.length > 0) {
+        const dbTasks = await this.prismaService.backtestTask.findMany({
+          where: {
+            id: { in: taskIds },
+            user_id: user.id, // Security: ensure user owns these tasks
+          },
+          select: { id: true, status: true },
+        });
+
+        // Create a map of taskId -> dbStatus for quick lookup
+        const dbStatusMap = new Map<string, string>();
+        for (const task of dbTasks) {
+          dbStatusMap.set(task.id, this.normalizeStatus(task.status));
+        }
+
+        // Filter out stale tasks where Redis status doesn't match database status
+        const validatedTasks: Record<string, ProgressData> = {};
+        let filteredCount = 0;
+
+        for (const [taskId, progress] of Object.entries(userTasksFromRedis)) {
+          const dbStatus = dbStatusMap.get(taskId);
+
+          // If task not found in DB, skip it (deleted or doesn't exist)
+          if (!dbStatus) {
+            this.logger.warn(
+              `Filtering stale task ${taskId} on connection: not found in database`
+            );
+            filteredCount++;
+            continue;
+          }
+
+          const redisStatus = this.normalizeStatus(progress.status);
+
+          // If database shows terminal status but Redis shows running, filter it out
+          if (dbStatus === 'cancelled' && redisStatus === 'running') {
+            this.logger.warn(
+              `Filtering stale task ${taskId} on connection: DB shows ${dbStatus} but Redis shows ${redisStatus}`
+            );
+            filteredCount++;
+            continue;
+          }
+
+          // Cache the status for future real-time updates
+          this.setCachedStatus(taskId, dbStatus);
+
+          // Task is valid, include it
+          validatedTasks[taskId] = progress;
+        }
+
+        client.emit('all_tasks', validatedTasks);
+
+        this.logger.log(
+          `Sent ${Object.keys(validatedTasks).length} validated tasks to ${user.email} ` +
+          `(filtered ${filteredCount} stale, skipped ${skippedCount} invalid)`,
+        );
+      } else {
+        // No tasks for this user
+        client.emit('all_tasks', {});
+        this.logger.debug(`No tasks to send to ${user.email}`);
+      }
     } catch (error) {
       this.logger.error(`Failed to send tasks to client: ${error.message}`);
 
@@ -592,6 +836,21 @@ export class BacktestProgressGateway
 
         // Verify user owns this task before sending cached data
         if (cachedProgress.user_id === user.id) {
+          // VALIDATION: Check database status before sending cached progress
+          const isValid = await this.validateTaskStatus(taskId, cachedProgress.status, user.id);
+
+          if (!isValid) {
+            // Cached data is stale (e.g., task was cancelled but Redis cache still shows running)
+            this.logger.warn(
+              `Not sending stale cached progress for task ${taskId} to ${user.email}`
+            );
+            client.emit('no_progress', {
+              backtest_id: taskId,
+              message: 'Task status has changed. Waiting for updated progress...'
+            });
+            return;
+          }
+
           client.emit('progress', cachedProgress);
           this.logger.debug(
             `Sent cached progress for task ${taskId}: ${cachedProgress.progress_percentage}%`,

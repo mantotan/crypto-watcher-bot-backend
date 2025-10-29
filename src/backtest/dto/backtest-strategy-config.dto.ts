@@ -23,7 +23,7 @@ export class BacktestStrategyConfigDto {
 
   @ApiPropertyOptional({
     description: 'List of allowed pattern types to trade',
-    example: ['double_top', 'double_bottom', 'head_shoulders'],
+    example: ['double_top', 'double_bottom', 'bullish_pennant', 'bearish_pennant'],
     type: [String],
   })
   @IsArray()

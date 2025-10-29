@@ -696,6 +696,29 @@ paths:
       security: *ref_1
       summary: Unarchive a backtest task
       tags: *ref_2
+  /backtest/tasks/{id}/cancel:
+    patch:
+      description: Cancels a running or queued backtest task. Sets the task status to CANCELLED and signals the Python worker to stop processing. Only QUEUED or RUNNING tasks can be cancelled.
+      operationId: BacktestController_cancelTask
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Backtest task ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task cancelled successfully
+        '400':
+          description: Cannot cancel task with current status (only QUEUED or RUNNING tasks can be cancelled)
+        '401':
+          description: Unauthorized
+        '404':
+          description: Task not found
+      security: *ref_1
+      summary: Cancel a backtest task
+      tags: *ref_2
   /backtest/results/{resultId}/trades:
     get:
       description: Returns individual trades from a backtest result with cursor-based pagination, filtering, and sorting options. Supports sorting by date (entry_datetime, exit_datetime, created_at), PnL (net_pnl), and risk/reward ratio (reward_risk_ratio). Use this endpoint to retrieve large datasets efficiently.
@@ -2197,7 +2220,8 @@ components:
           example:
             - double_top
             - double_bottom
-            - head_shoulders
+            - bullish_pennant
+            - bearish_pennant
           type: array
           items:
             type: string
@@ -2338,6 +2362,8 @@ components:
                 allowed_patterns:
                   - double_top
                   - double_bottom
+                  - bullish_pennant
+                  - bearish_pennant
                 risk_mode: PERCENTAGE
                 risk_per_trade_percentage: 5
                 initial_capital: 10000
@@ -2350,7 +2376,8 @@ components:
                 allowed_patterns:
                   - double_top
                   - double_bottom
-                  - head_shoulders
+                  - bullish_pennant
+                  - bearish_pennant
                 risk_mode: FIXED_AMOUNT
                 fixed_risk_amount: 100
                 initial_capital: 10000
@@ -2533,6 +2560,8 @@ components:
           example:
             - double_top
             - double_bottom
+            - bullish_pennant
+            - bearish_pennant
           type: array
           items:
             type: string
@@ -2719,6 +2748,8 @@ components:
           example:
             - double_bottom
             - double_top
+            - bullish_pennant
+            - bearish_pennant
           items:
             type: array
           type: array
@@ -2839,6 +2870,8 @@ components:
           example:
             - double_bottom
             - double_top
+            - bullish_pennant
+            - bearish_pennant
           items:
             type: array
           type: array

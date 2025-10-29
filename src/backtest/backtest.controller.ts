@@ -203,6 +203,37 @@ export class BacktestController {
     return this.backtestService.softDeleteTask(req.user.id, id);
   }
 
+  @Patch('tasks/:id/cancel')
+  @ApiOperation({
+    summary: 'Cancel a backtest task',
+    description:
+      'Cancels a running or queued backtest task. Sets the task status to CANCELLED and ' +
+      'signals the Python worker to stop processing. Only QUEUED or RUNNING tasks can be cancelled.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Backtest task ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task cancelled successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Cannot cancel task with current status (only QUEUED or RUNNING tasks can be cancelled)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Task not found',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  async cancelTask(@Request() req, @Param('id') id: string) {
+    return this.backtestService.cancelTask(req.user.id, id);
+  }
+
   @Get('results/:resultId/trades')
   @ApiOperation({
     summary: 'Get backtest result trades with pagination and sorting',
