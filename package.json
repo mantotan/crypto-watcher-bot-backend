@@ -1,7 +1,21 @@
 {
   "name": "crypto-watcher-bot-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "NestJS + PostgreSQL backend for a crypto trading bot. AES-256-GCM encrypted credentials, 2FA TOTP + Google OAuth + password reset, Redis-queued backtests with WebSocket progress, Prisma ORM.",
+  "keywords": [
+    "nestjs",
+    "typescript",
+    "postgresql",
+    "prisma",
+    "redis",
+    "websocket",
+    "jwt",
+    "oauth2",
+    "2fa",
+    "trading-bot"
+  ],
+  "author": "Hermanto Tan",
+  "license": "MIT",
   "main": "index.js",
   "scripts": {
     "build": "nest build",
@@ -22,9 +36,6 @@
     "type": "git",
     "url": "git+https://github.com/mantotan/crypto-watcher-bot-backend.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/mantotan/crypto-watcher-bot-backend/issues"
   },

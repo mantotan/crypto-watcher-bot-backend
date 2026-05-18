@@ -1,9 +1,8 @@
 # CLAUDE.md
 
-Claude Code guidance for this NestJS-based crypto trading bot API backend. Handles authentication, trading accounts, strategies (real/paper), backtesting, and portfolio tracking. Integrates with PostgreSQL, Redis, and GraphQL chart service.
+Claude Code guidance for this NestJS-based crypto trading bot API backend. Handles authentication, trading accounts, strategies (real/paper), backtesting, and portfolio tracking. Integrates with PostgreSQL, Redis, and a GraphQL chart service.
 
-## USER NOTES
-- prisma schema here is only read only, no need to do anything with the migration just do prisma generate is enough, migration is done and managed by another project
+> Note: The Prisma schema in this repo is read-only — migrations are owned by a separate (private) service. From this repo, run `pnpm prisma:generate` after pulling schema updates; do not run `prisma migrate dev` here.
 
 ## Architecture
 

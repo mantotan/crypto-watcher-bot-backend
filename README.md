@@ -1,26 +1,24 @@
-# Crypto Watcher Bot Backend
+# crypto-watcher-bot-backend
 
-API for crypto trading signal bot with automated order execution. Built with NestJS, Prisma, and PostgreSQL.
+NestJS + PostgreSQL API for a crypto trading bot. The accompanying dashboard frontend is in the sibling repo [`mantotan/crypto-watcher-bot-frontend`](https://github.com/mantotan/crypto-watcher-bot-frontend).
 
-## Features
+## What's interesting
 
-- 🔐 **JWT Authentication** - Access & refresh token implementation
-- 📚 **API Documentation** - Interactive Scalar UI for testing endpoints
-- 🚀 **Rate Limiting** - Built-in throttling (10 requests/minute)
-- 🔒 **Password Security** - Bcrypt hashing with 10 rounds
-- ✅ **Request Validation** - Class-validator for DTO validation
-- 🐳 **Docker Ready** - Multi-stage build with Docker Compose
-- 🗄️ **Database** - PostgreSQL with Prisma ORM
+- **Auth refactored into 8 focused services** under [`src/auth/`](src/auth/) — `auth-core` (login/register/lockout), `email-verification`, `password-reset`, `password-management` (for OAuth-only accounts), `oauth` (Google + CSRF), `two-factor-auth` + `two-factor` (TOTP setup + backup codes), `user-profile`. Splitting the concerns kept each service under 250 lines and made testing tractable.
+- **AES-256-GCM encryption** for sensitive data — exchange API keys, 2FA TOTP secrets, backup-code hashes. [`encryption.util.ts`](src/common/utils/encryption.util.ts).
+- **JWT in HTTP-only cookies with SameSite=Strict** — 15-minute access, 7-day refresh, hard invalidation on password / 2FA changes. Account lockout: 5 fails → 15-min cooldown.
+- **Backtest pipeline** — NestJS pushes to a Redis queue, an out-of-process Python worker (see "What's not in here" below) processes it, results return through the same DB. Real-time progress via a **WebSocket Gateway pattern-subscribing to Redis Pub/Sub** so users see live `progress_percentage` + `current_step` updates without polling.
+- **Hedging constraints enforced at the DB layer** — `@@unique([account_id, strategy_id, symbol, side, is_active])` with an `allow_hedging` boolean controlling whether opposite-side positions on the same symbol coexist. Same model used for live trading and backtesting.
 
-## Tech Stack
+## Tech stack
 
-- **Framework**: NestJS
-- **Language**: TypeScript
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Authentication**: Passport JWT
-- **Package Manager**: pnpm
-- **Documentation**: OpenAPI (Swagger) with Scalar UI
+- NestJS 11 + TypeScript
+- PostgreSQL via Prisma 6 (typed ORM, soft deletes, timezone-aware timestamps)
+- Redis (queue + Pub/Sub for the progress stream; 2 clients — commands + subscriber)
+- Passport-JWT, Passport-Google-OAuth20
+- Socket.IO via `@nestjs/platform-socket.io` and `@nestjs/websockets`
+- bcrypt (passwords, backup codes), otpauth (TOTP)
+- Scalar UI for the OpenAPI explorer at `/api/docs`
 
 ## Prerequisites
 
@@ -362,23 +360,20 @@ docker network create crypto_watcher_network
 - Ensure PostgreSQL is running
 - Check network connectivity in Docker
 
-## Contributing
+## What's not in here
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+This repo is the **API layer only** of a larger system. To run end-to-end it depends on three sibling services that are kept private:
+
+- **A trade-execution worker** — a Python process that reads the Redis backtest queue, runs the actual pattern-detection + simulated-trade logic, and writes results back to PostgreSQL. The NestJS API in this repo only enqueues backtest tasks and surfaces progress; it doesn't run the strategies itself.
+- **A chart-data service** — exposes historical OHLCV data through a GraphQL endpoint. The API in this repo proxies through it for the dashboard's chart components.
+- **A backtest service** — the Python pattern-detection engine the trade worker uses.
+
+The Prisma schema lives in this repo but is managed (migrations) by the trade worker — this repo only runs `prisma generate` against it.
+
+What this means concretely: `pnpm run start:dev` will boot the API, but most endpoints that touch backtest results or chart data will return errors until you have your own implementations of the sibling services. The auth, account management, strategy CRUD, and OpenAPI explorer all work standalone.
+
+This is published as an engineering portfolio artifact, not a runnable end-to-end product. If you want to study the auth refactor, the WebSocket Gateway, or the Prisma schema design, this repo is enough.
 
 ## License
 
-ISC
-
-## Author
-
-Crypto Watcher Team
-
-## Support
-
-For issues and questions:
-- GitHub Issues: https://github.com/mantotan/crypto-watcher-bot-backend/issues
+MIT — see [`LICENSE`](LICENSE).
