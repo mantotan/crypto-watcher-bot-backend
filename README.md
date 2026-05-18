@@ -54,14 +54,19 @@ Then edit `.env` and update the values:
 
 ```env
 # Database
-DATABASE_URL="postgresql://postgres:password@crypto_watcher_trade_db:5432/crypto_watcher_trade?schema=public"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/crypto_watcher?schema=public"
 
 # JWT Configuration
 JWT_ACCESS_SECRET="your-super-secret-access-key-change-this-in-production"
-JWT_ACCESS_EXPIRES_IN="24h"
+JWT_ACCESS_EXPIRES_IN="15m"
 JWT_REFRESH_SECRET="your-super-secret-refresh-key-change-this-in-production"
 JWT_REFRESH_EXPIRES_IN="7d"
+
+# Encryption (AES-256-GCM for API keys, 2FA secrets)
+ENCRYPTION_KEY="<64 hex chars — generate with: openssl rand -hex 32>"
 ```
+
+See [`.env.example`](.env.example) for all variables.
 
 **⚠️ Important**: Change the JWT secrets in production! Generate secure secrets using:
 ```bash
@@ -289,13 +294,16 @@ See `prisma/schema.prisma` for the complete schema.
 
 ## Security Features
 
-- ✅ Password hashing with bcrypt (10 rounds)
-- ✅ JWT access tokens (24h expiry)
-- ✅ JWT refresh tokens (7d expiry)
-- ✅ Request validation and sanitization
-- ✅ Rate limiting (10 requests/minute)
-- ✅ CORS enabled (configurable)
-- ✅ Encrypted API keys in database
+- Password hashing with bcrypt (10 rounds)
+- JWT access tokens (15m expiry, HTTP-only cookies, SameSite=Strict)
+- JWT refresh tokens (7d expiry, HTTP-only cookies)
+- Account lockout: 5 failed login attempts → 15-minute cooldown
+- AES-256-GCM encryption for exchange API keys, 2FA TOTP secrets, backup-code hashes
+- 2FA TOTP with rate limiting on verification attempts
+- Request validation via class-validator DTOs
+- Global rate limiting (60 requests/minute via ThrottlerGuard)
+- CORS configured per `FRONTEND_URL`
+- JWT invalidation on password / 2FA changes
 
 ## Environment Variables
 
@@ -303,7 +311,7 @@ See `prisma/schema.prisma` for the complete schema.
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | Required |
 | `JWT_ACCESS_SECRET` | Secret for access tokens | Required |
-| `JWT_ACCESS_EXPIRES_IN` | Access token expiry | `24h` |
+| `JWT_ACCESS_EXPIRES_IN` | Access token expiry | `15m` |
 | `JWT_REFRESH_SECRET` | Secret for refresh tokens | Required |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token expiry | `7d` |
 | `FRONTEND_URL` | Frontend origin for CORS | `http://localhost:3006` |
