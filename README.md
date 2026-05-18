@@ -20,29 +20,31 @@ NestJS + PostgreSQL API for a crypto trading bot. The accompanying dashboard fro
 - bcrypt (passwords, backup codes), otpauth (TOTP)
 - Scalar UI for the OpenAPI explorer at `/api/docs`
 
-## Prerequisites
+## Getting Started
+
+### Prerequisites
 
 - Node.js 20+
 - pnpm 10+
 - PostgreSQL (or Docker)
 - Docker & Docker Compose (optional)
 
-## Installation
+### Installation
 
-### 1. Clone the repository
+#### 1. Clone the repository
 
 ```bash
 git clone https://github.com/mantotan/crypto-watcher-bot-backend.git
 cd crypto-watcher-bot-backend
 ```
 
-### 2. Install dependencies
+#### 2. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 3. Environment setup
+#### 3. Environment setup
 
 Copy the example environment file and configure it:
 
@@ -73,15 +75,15 @@ See [`.env.example`](.env.example) for all variables.
 openssl rand -base64 32
 ```
 
-### 4. Generate Prisma Client
+#### 4. Generate Prisma Client
 
 ```bash
 pnpm prisma:generate
 ```
 
-## Running the Application
+### Run locally (dev / debug / prod modes)
 
-### Development Mode
+#### Development Mode
 
 ```bash
 pnpm run start:dev
@@ -91,7 +93,7 @@ The API will be available at:
 - **API**: http://localhost:3733
 - **API Docs**: http://localhost:3733/api/docs
 
-### Production Mode
+#### Production Mode
 
 ```bash
 # Build the application
@@ -101,15 +103,15 @@ pnpm run build
 pnpm run start:prod
 ```
 
-### Debug Mode
+#### Debug Mode
 
 ```bash
 pnpm run start:debug
 ```
 
-## Docker Deployment
+### Run with Docker
 
-### Prerequisites
+#### Network prerequisite
 
 Create the Docker network (if not already created):
 
@@ -117,7 +119,7 @@ Create the Docker network (if not already created):
 docker network create crypto_watcher_network
 ```
 
-### Build and Run
+#### Build and Run
 
 ```bash
 # Build Docker image
@@ -133,7 +135,7 @@ pnpm run docker:logs
 pnpm run docker:down
 ```
 
-### Docker Compose
+#### Docker Compose
 
 ```bash
 # Start in detached mode
